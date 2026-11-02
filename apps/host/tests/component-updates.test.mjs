@@ -313,7 +313,7 @@ test('packaged: an app update that ends the app is recorded as finished by the n
 });
 
 test('packaged: an update job an OLDER host left running is finished when the app program file is newer than the job', async () => {
-  const exe = new URL('../../strata-desktop.exe', import.meta.url);          // <install>/strata-desktop.exe as seen from <install>/host
+  const exe = new URL(process.platform === 'win32' ? '../../strata-desktop.exe' : '../../strata-desktop', import.meta.url); // native executable as seen from <install>/host
   const f = fixture({ withApp: true });
   try {
     const { fileURLToPath } = await import('node:url');

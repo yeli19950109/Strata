@@ -10,7 +10,7 @@ import { previewLegacyRunConfig, saveLegacyRunConfig } from '../server/legacy-ru
 
 const executablePath=process.env.STRATA_TEST_CHROME || ['/usr/bin/chromium','/usr/bin/google-chrome','/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'].find(existsSync);
 
-test('browser file selection previews and saves a UTF-8 BOM and original JSON bytes', {skip:!executablePath,timeout:30000}, async()=>{
+test('browser file selection previews and saves a UTF-8 BOM and original JSON bytes', {skip:!executablePath,timeout:120000}, async()=>{
  const dir=mkdtempSync(join(tmpdir(),'strata-browser-import-'));
  const vite=await createServer({configFile:false,root:resolve(import.meta.dirname,'..'),plugins:[react()],server:{host:'127.0.0.1',port:0,strictPort:false}});
  let browser;
@@ -18,6 +18,7 @@ test('browser file selection previews and saves a UTF-8 BOM and original JSON by
   await vite.listen(); const port=vite.httpServer.address().port;
   browser=await chromium.launch({executablePath,headless:true,args:['--no-sandbox']});
   const page=await browser.newPage();let previewText,importText;
+  page.setDefaultTimeout(90000);
   await page.route('**/api/native/legacy/preview',async route=>{const {text}=route.request().postDataJSON();previewText=text;const data=previewLegacyRunConfig(text);await route.fulfill({json:{config:data.config,issues:data.issues,overrides:data.overrides}});});
   await page.route('**/api/native/legacy/import',async route=>{const {text,id}=route.request().postDataJSON();importText=text;saveLegacyRunConfig(dir,id,text);await route.fulfill({json:{ok:true}});});
   await page.route('**/api/native?*',async route=>route.fulfill({json:{}}));

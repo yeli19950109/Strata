@@ -10,10 +10,9 @@ Harness (agent features need the latter). This includes macOS, unlike the upstre
 are not signed, do not include updater metadata and are not published as a GitHub release. Install an engine explicitly or
 select an existing one before loading a model. Artifacts expire after seven days.
 
-The host test step runs the complete `tests/*.test.mjs` suite without a name filter. Three tests failed on the clean
-baseline in the development container: the old app-update test uses a Windows executable name on Linux, the parent-exit
-test can mistake an unreaped zombie for a live process, and the time-skip test left an orphaned grandchild. Their results
-on GitHub-hosted runners have not been verified; CI does not suppress them.
+The host test step runs the complete `tests/*.test.mjs` suite without a name filter. The app-update test uses the native
+platform's executable name; Time-skip stops its process group and the test recognises exited Linux zombies. A separate
+parent-exit test can still mistake an unreaped zombie for a live process in some containers. CI does not suppress it.
 
 **Metal build**, **Portable monitor client** and **Scripts test** are manual-only in this fork. In GitHub Actions choose
 one of them and select **Run workflow** to run it once. Docker engine-image publishing was already manual-only and stays
