@@ -1,0 +1,173 @@
+name: Desktop client
+
+# Fork CI: no engine or model is built, downloaded, signed or published here.
+on:
+  push:
+    paths:
+      - 'apps/host/**'
+      - 'apps/desktop/**'
+      - 'strata_control/**'
+      - 'strata_cli/**'
+      - 'serve/**'
+      - 'tools/**'
+      - 'setup.py'
+      - 'strata.py'
+      - 'ref/load.py'
+      - 'data/**'
+      - 'bench/prompts/standard-v1/**'
+      - 'docs/MANAGEMENT_PROTOCOL.md'
+      - 'docs/TERMINAL_LAUNCH.md'
+      - 'packaging/package_terminal.py'
+      - 'packaging/package_engine.py'
+      - 'packaging/feed_tool.py'
+      - 'packaging/binary_deps.py'
+      - 'tests/terminal/test_external_engine_update.py'
+      - 'tests/terminal/test_fork_release.py'
+      - 'tests/terminal/update_fixture.py'
+      - 'packaging/locks/**'
+      - 'requirements*.txt'
+      - '.github/workflows/desktop.yml'
+      - '.github/workflows/fork-release.yml'
+  pull_request:
+    paths:
+      - 'apps/host/**'
+      - 'apps/desktop/**'
+      - 'strata_control/**'
+      - 'strata_cli/**'
+      - 'serve/**'
+      - 'tools/**'
+      - 'setup.py'
+      - 'strata.py'
+      - 'ref/load.py'
+      - 'data/**'
+      - 'bench/prompts/standard-v1/**'
+      - 'docs/MANAGEMENT_PROTOCOL.md'
+      - 'docs/TERMINAL_LAUNCH.md'
+      - 'packaging/package_terminal.py'
+      - 'packaging/package_engine.py'
+      - 'packaging/feed_tool.py'
+      - 'packaging/binary_deps.py'
+      - 'tests/terminal/test_external_engine_update.py'
+      - 'tests/terminal/test_fork_release.py'
+      - 'tests/terminal/update_fixture.py'
+      - 'packaging/locks/**'
+      - 'requirements*.txt'
+      - '.github/workflows/desktop.yml'
+      - '.github/workflows/fork-release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  host:
+    name: UI types, tests and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.12.0'
+          cache: npm
+          cache-dependency-path: apps/host/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: npm ci --no-audit --no-fund
+        working-directory: apps/host
+      - run: npm run typecheck
+        working-directory: apps/host
+      - name: External engine update security tests (stdlib only)
+        # Signed temporary stubs and loopback HTTP only; no real engine or GPU.
+        run: python -m unittest tests.terminal.test_external_engine_update -q
+      - name: Fork release configuration tests
+        run: python -m unittest tests.terminal.test_fork_release -q
+      - name: Host tests
+        working-directory: apps/host
+        shell: bash
+        run: |
+          profile="$RUNNER_TEMP/strata-test-profile"
+          mkdir -p "$profile"
+          export STRATA_SETTINGS_FILE="$profile/app-settings.json" STRATA_COMPONENTS_DIR="$profile/components"
+          export LOCALAPPDATA="$profile/Local" APPDATA="$profile/Roaming" XDG_DATA_HOME="$profile/xdg-data" XDG_STATE_HOME="$profile/xdg-state" XDG_CONFIG_HOME="$profile/xdg-config"
+          node --test tests/*.test.mjs
+      - run: npm run build
+        working-directory: apps/host
+
+  package:
+    needs: host
+    name: Desktop package / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            bundle: deb
+          - os: windows-latest
+            bundle: nsis
+          - os: macos-14
+            bundle: app
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.12.0'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: External engine update security tests (Windows and macOS)
+        if: runner.os != 'Linux'
+        run: python -m unittest tests.terminal.test_external_engine_update -q
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Linux desktop libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+      - name: Install UI and Tauri dependencies
+        shell: bash
+        run: |
+          npm ci --prefix apps/host --no-audit --no-fund
+          npm ci --prefix apps/desktop --no-audit --no-fund
+      - name: Stage verified Node runtime (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          bash apps/desktop/scripts/fetch-node.sh
+          bash apps/desktop/scripts/fetch-node.sh --check
+      - name: Stage verified Node runtime (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          ./apps/desktop/scripts/fetch-node.ps1
+          ./apps/desktop/scripts/fetch-node.ps1 -Check
+      - name: Stage Control and Python runtime
+        run: |
+          python apps/desktop/scripts/stage-control.py
+          python apps/desktop/scripts/stage-control.py --check
+      - name: Prepare explicitly empty optional resources
+        shell: bash
+        run: |
+          mkdir -p apps/desktop/src-tauri/resources/harness apps/desktop/src-tauri/resources/engine-bundle
+          printf 'CI package: optional Harness is not included.\n' > apps/desktop/src-tauri/resources/harness/CI-NOT-INCLUDED.txt
+          printf 'CI package: no engine is included.\n' > apps/desktop/src-tauri/resources/engine-bundle/CI-NOT-INCLUDED.txt
+      - name: Build unsigned test package
+        working-directory: apps/desktop
+        run: npm run build:ui && npx tauri build --bundles ${{ matrix.bundle }}
+      - name: Archive macOS app with permissions and links
+        if: runner.os == 'macOS'
+        shell: bash
+        run: tar -czf "$RUNNER_TEMP/strata-macos-app.tar.gz" -C apps/desktop/src-tauri/target/release/bundle/macos Strata.app
+      - uses: actions/upload-artifact@v4
+        with:
+          name: strata-desktop-test-${{ matrix.os }}
+          path: |
+            apps/desktop/src-tauri/target/release/bundle/deb/*.deb
+            apps/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe
+            ${{ runner.temp }}/strata-macos-app.tar.gz
+          if-no-files-found: error
+          retention-days: 7

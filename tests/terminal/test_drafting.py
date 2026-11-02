@@ -196,6 +196,15 @@ class EngineArguments(unittest.TestCase):
             engine_args(self.cfg(drafting="dflash2"))
             self.assertEqual(drafting.take_note(), drafting.NOT_SERVED, "the engine that starts next is told why")
 
+    def test_imported_run_keeps_ordered_arguments(self):
+        from serve.server import engine_args
+        cfg = self.cfg(ui_preserve_engine_args=True, drafting="off", mtp=False,
+                       user_args=["--spec", "99"], vision={"gpu": True}, gpu=[0, 1])
+        original = list(cfg["args"])
+        with mock.patch("serve.server.drafting_card_class", side_effect=AssertionError("must not probe")):
+            self.assertEqual(engine_args(cfg), original)
+        self.assertEqual(cfg["args"], original)
+
     def test_data_folder_of_an_argument_list(self):
         self.assertEqual(drafting.data_dir_of(["--pack", "/d/packs/x"]), Path("/d"))
         self.assertEqual(drafting.data_dir_of(["--mtp", "/d/mtp/rt"]), Path("/d"))

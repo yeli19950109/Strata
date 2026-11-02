@@ -6,6 +6,9 @@ import { api } from '../lib/client';
 import { useDownloadEta } from '../lib/download-eta';
 import type { NativeJob } from '../lib/native';
 import { megabytes } from '../lib/format';
+import { LegacyRunImport } from './LegacyRunImport';
+import { ExternalEngineChoice } from './ExternalEngineChoice';
+import { completeSetupStep, openSetup, go } from '../lib/store';
 
 /** What the host says about this PC's engine (GET /api/engine/first-run). */
 export interface FirstRunInfo {
@@ -29,10 +32,10 @@ export function useEngineNeeded(): boolean | null {
     const [needed, setNeeded] = useState<boolean | null>(null);
     useEffect(() => {
         let live = true;
-        const ask = () => api.get<{ engine?: { usable?: boolean } | null; engineSetup?: boolean }>('/api/control/status').then(s => {
+        const ask = () => api.get<{ engine?: { usable?: boolean } | null; engineSetup?: boolean; externalEngine?: { selected?: boolean } }>('/api/control/status').then(s => {
             if (!live) return;
             if (s.engineSetup) return setNeeded(null);
-            setNeeded(!!s.engine && s.engine.usable === false);
+            setNeeded(!s.externalEngine?.selected && !!s.engine && s.engine.usable === false);
         }, () => { if (live) setNeeded(false); });
         void ask();
         const timer = setInterval(() => void ask(), 3000);
@@ -58,7 +61,7 @@ export function EngineFirstRun({ onDone }: { onDone: () => void }) {
     const [info, setInfo] = useState<FirstRunInfo | null>(null);
     const [job, setJob] = useState<NativeJob | null>(null);
     const [busy, setBusy] = useState(false), [problem, setProblem] = useState('');
-    const [finished, setFinished] = useState(false);
+    const [finished, setFinished] = useState(false), [importOpen, setImportOpen] = useState(false), [engineOpen, setEngineOpen] = useState(false);
     const file = useRef<HTMLInputElement>(null);
     const started = useRef(false);
 
@@ -167,7 +170,7 @@ export function EngineFirstRun({ onDone }: { onDone: () => void }) {
         body = <><div className="onboard-welcome-copy"><h1 tabIndex={-1} data-initial-focus>{tr("Welcome to Strata")}</h1>{main}</div>
             {failed ? <div className="onboard-error" style={{ maxWidth: 560, margin: '0 auto' }}><p role="alert" className="small inline-error">{job?.error ?? job?.summary}</p><p className="small muted">{tr("The download stopped. Continue picks it up where it stopped.")}</p></div> : null}
             {problem ? <div className="onboard-error" style={{ maxWidth: 560, margin: '0 auto' }}><p role="alert" className="small inline-error">{problem}</p></div> : null}
-            <footer className="onboard-footer onboard-footer--welcome">{actions}</footer></>;
+            <footer className="onboard-footer onboard-footer--welcome">{actions}<button type="button" className="onboard-continue-anyway" disabled={busy} onClick={() => setEngineOpen(true)}>{tr('Use an existing engine…')}</button><button type="button" className="onboard-continue-anyway" disabled={busy} onClick={() => setImportOpen(true)}>{tr('Use an existing engine and JSON configuration…')}</button></footer></>;
     }
-    return <div className="setup guided-onboarding" data-step="engine">{hidden}<header className="onboard-header"><Brand variant="lockup" height={22}/></header>{body}</div>;
+    return <div className="setup guided-onboarding" data-step="engine">{hidden}<ExternalEngineChoice open={engineOpen} onClose={() => setEngineOpen(false)} onDone={onDone}/><LegacyRunImport open={importOpen} onClose={() => setImportOpen(false)} onImported={() => { void completeSetupStep(1, undefined, true).then(() => { openSetup(false); go('models'); }).catch(e => setProblem(e instanceof Error ? e.message : String(e))); }}/><header className="onboard-header"><Brand variant="lockup" height={22}/></header>{body}</div>;
 }
