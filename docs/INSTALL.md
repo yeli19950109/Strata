@@ -57,6 +57,51 @@ runs on Linux only, through the [Terminal](INTEL_ARC.md).
 The first launch can take time to check and prepare large model files. Watch its progress and logs; there is no fixed
 startup time for every model or computer. Closing the desktop app stops its managed engine.
 
+### Use an existing engine and run configuration
+
+On the first engine screen, choose **Use an existing engine** and enter the full path to its executable. You can
+also find this choice under **Models → Existing engine configurations**. Strata references the executable in place;
+it does not move or delete it. Stop loaded models before changing the selection. If its drive is disconnected,
+the selection stays saved; reconnect the drive before loading a model. Choose **Stop using this engine** to return to
+the app-managed engine.
+
+To update a selected external engine, open **Use an existing engine**, choose **Check external engine update**, and
+review the current version, target version and path. The update starts only after confirmation and saves a backup first.
+Stop models in the app and stop any other command-line engine processes before updating; another program could start one
+again while the update runs. The updater accepts only intact, signed standard engine packages with a complete signed file
+list. Older official Windows HIP ZIPs as well as custom layouts may lack that list. The app cannot safely update them in
+place without it. Back up the existing files and install an official signed component in a separate folder, then select
+its executable; your original engine, models and JSON stay in place. If using an imported JSON, also update a separate
+copy as described below. The path alone cannot establish whether a particular old engine has a usable signed list.
+Reconnect an offline drive before checking or restoring. If an update is interrupted, use the restore prompt after restart
+to restore the verified backup. On macOS the app cannot reliably detect a running command-line engine, so it refuses
+this update; stop it and update manually. Automatic external-engine updates are implemented for Windows and Linux;
+Windows has not yet been verified on native hardware. While external references
+are present, some managed-engine install/rollback and model-folder moves are
+paused to protect files those references may use.
+Recovery leaves any files added by the interrupted update in place to avoid deleting files it cannot prove ownership of.
+Their paths are shown after recovery; review them before retrying, because existing files can prevent a later update.
+
+To bring in a command-line run, choose **Import run JSON** on that screen (or **Use an existing engine and JSON
+configuration** on first start). Review the configuration and the changes listed, give it a unique name, and confirm.
+The app saves its own copy without starting the model or downloading an engine. The original JSON, engine, models and
+libraries stay in place; **Remove from Strata** removes only the app's copy. Reconnect missing drives before loading.
+Use absolute paths for the working directory, tokenizer, log and library directories; engine and known model argument
+paths may be relative to an absolute working directory.
+An imported configuration's explicit `exe` takes precedence over the globally selected engine. If you move an old
+engine to a new folder, edit a separate copy of the JSON to name the new `exe`, then import it under a new name; selecting
+the new engine alone does not change the imported configuration. Keep the original JSON and files until the new setup
+has been checked.
+
+Imported engine arguments are passed in their original order. The app server uses localhost and its own port and API
+key, disables automatic browser opening, adds an alias and may increase the startup timeout. Other settings that would
+rewrite the engine arguments are not applied to an imported run. If the configuration has a `before_load` command,
+the app shows it for confirmation each time before loading. If the configuration changes after that review, review it
+again. The command runs when the model starts. The server may adjust GPU and HIP environment settings for the selected
+hardware.
+Paths in the imported `env` are kept as written. An external HIP tuning file referenced there is not updated with the
+engine; check that it is compatible with the new engine before starting the model.
+
 The provider order recommended here is **ISTA-DASLab, Unsloth, Gyro, then others**, when a compatible pack fits.
 Current app recommendations can differ; choose the model explicitly when you want a particular provider.
 

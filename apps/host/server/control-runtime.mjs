@@ -43,35 +43,22 @@ export function updatedControlDirectory({ env = process.env, platform = process.
   } catch { return null; }
 }
 
-const versionKey = value => String(value ?? '').split('.').map(part => Number.parseInt(part, 10) || 0);
-function newer(a, b) {
-  for (let i = 0; i < Math.max(a.length, b.length); i++) if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) > (b[i] ?? 0);
-  return false;
-}
-
-/**
- * Is there a Control component to use? STRATA_CONTROL_DIR names one (the Tauri shell sets it to the bundled one), the
- * `control` folder beside `host` is the installed app's, and `<components>/control/active.json` is one the component
- * updater installed. Each must be whole; the newest version wins, so an app update that ships a newer Control is never
- * held back by an older updated one, and an updated Control is never lost to an older bundled one. A tie goes to the first
- * in that order. Returns null in a source checkout (the host then keeps its older paths).
- */
+/** Prefer the fork app's explicit or bundled Control. Older app versions may
+ * have installed an upstream Control with a larger version in the component
+ * folder; it must not silently replace this fork's server. The component copy
+ * remains a fallback when neither explicit nor bundled Control is whole. */
 export function findControl({ env = process.env, platform = process.platform, exists = existsSync, hostDir = resolve(HERE, '..'), components = null } = {}) {
   const updated = updatedControlDirectory({ env, platform, components });
   const candidates = [{ dir: env.STRATA_CONTROL_DIR }, { dir: join(hostDir, '..', 'control') }, ...(updated ? [updated] : [])]
     .filter(c => c.dir).map(c => ({ ...c, dir: resolve(c.dir) }));
-  let best = null;
   for (const candidate of candidates) {
     const python = bundledPython(candidate.dir, platform);
     if (!(exists(python) && exists(join(candidate.dir, 'strata.py')) && exists(join(candidate.dir, 'strata_control')))) continue;
     let bundle = null;
     try { bundle = JSON.parse(readFileSync(join(candidate.dir, 'BUNDLE.json'), 'utf8').replace(/^﻿/, '')); } catch { /* optional */ }
-    const found = { dir: candidate.dir, python, cli: join(candidate.dir, 'strata.py'), bundle, key: versionKey(bundle?.version ?? candidate.version) };
-    if (!best || newer(found.key, best.key)) best = found;
+    return { dir: candidate.dir, python, cli: join(candidate.dir, 'strata.py'), bundle };
   }
-  if (!best) return null;
-  const { key, ...control } = best;
-  return control;
+  return null;
 }
 
 /**

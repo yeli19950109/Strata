@@ -11,6 +11,7 @@ import { createAppUpdater } from '../server/app-updater.mjs';
 import { createNativeControl } from '../server/native-control.mjs';
 
 const isWin = process.platform === 'win32';
+const forkCurrent = async () => ({ok:true,json:async()=>[{tag_name:'v0.1.0',html_url:'https://github.com/yeli19950109/Strata/releases/tag/v0.1.0'}]});
 
 function controlDir(parent, name, version) {
   const dir = join(parent, name);
@@ -31,7 +32,7 @@ test('only the update step may acquire: Control keeps STRATA_NO_ACQUIRE unless `
   assert.equal(env.PYTHONNOUSERSITE, '1');
 });
 
-test('an updated Control wins only when it is newer than the bundled one, and only when whole', () => {
+test('the bundled fork Control wins over a previously updated upstream Control', () => {
   const root = mkdtempSync(join(tmpdir(), 'strata-update-control-'));
   try {
     const install = join(root, 'install');
@@ -41,7 +42,7 @@ test('an updated Control wins only when it is newer than the bundled one, and on
     const updated = controlDir(join(components, 'control'), '0.1.46', '0.1.46');
     writeFileSync(join(components, 'control', 'active.json'), JSON.stringify({ version: '0.1.46', folder: '0.1.46' }));
     const find = (extra = {}) => findControl({ env: {}, hostDir: join(install, 'host'), components, ...extra });
-    assert.equal(find().dir, updated, 'the updated 0.1.46 beats the bundled 0.1.45');
+    assert.equal(find().dir, bundled, 'the fork bundle wins over a newer upstream Control');
     writeFileSync(join(bundled, 'BUNDLE.json'), JSON.stringify({ version: '0.1.47' }));
     assert.equal(find().dir, bundled, 'an app update that ships a newer Control is not held back by an older updated one');
     writeFileSync(join(bundled, 'BUNDLE.json'), JSON.stringify({ version: '0.1.46' }));
@@ -113,8 +114,8 @@ test('the Settings check says so, in plain words, when the own update check of t
   assert.doesNotMatch(nothing.strata.message, /decoding|http|latest\.json/, 'no raw text in the main line');
   assert.match(nothing.strata.details, /error decoding response body/);
   const withControl = await checkComponentUpdates({ control: feed({ installed: '0.2.5', offered: '0.2.6', status: 'available' }), appUpdater: failing, appVersion: '0.2.5' });
-  assert.equal(withControl.strata.status, 'available');
-  assert.match(withControl.strata.message, /new version of Strata is available.*couldn't check for a new version of the app itself/s);
+  assert.equal(withControl.strata.status, 'error');
+  assert.match(withControl.strata.message, /couldn't check for a new version of the app itself/);
   assert.match(withControl.strata.details, /decoding/);
   const fine = await checkComponentUpdates({ control: feed(), appUpdater: { check: async () => ({ available: false }) }, appVersion: '0.2.5' });
   assert.equal(fine.strata.status, 'current');
@@ -124,36 +125,36 @@ test('the Settings check says so, in plain words, when the own update check of t
 test('the Settings update check maps the feed to the existing result shape', async () => {
   const report = overrides => ({ ok: true, feed: { sequence: 3 }, engine: { installed: { version: '0.1.45' }, offered: { version: '0.1.46' }, status: 'available', download_bytes: 505_000_000 }, control: { installed: '0.1.45', offered: '0.1.45', status: 'current' }, app: { status: 'not-in-feed' }, ...overrides });
   const make = value => ({ version: '0.1.45', async updateCheck() { if (value instanceof Error) throw value; return value; } });
-  let result = await checkComponentUpdates({ control: make(report()), appVersion: '0.1.0' });
+  let result = await checkComponentUpdates({ fetcher: forkCurrent, control: make(report()), appVersion: '0.1.0' });
   assert.equal(result.engine.status, 'available');
   assert.equal(result.engine.latestVersion, '0.1.46');
   assert.match(result.engine.message, /new engine is available \(505 MB\)/);
   assert.doesNotMatch(result.engine.message, /0\.1\.4|sha|exit/i);
   assert.equal(result.engine.canInstall, true);
   assert.equal(result.strata.status, 'current');
-  result = await checkComponentUpdates({ control: make(report({ engine: { installed: null, offered: { version: '0.1.46' }, status: 'install', download_bytes: 505_000_000 } })) });
+  result = await checkComponentUpdates({ fetcher: forkCurrent, control: make(report({ engine: { installed: null, offered: { version: '0.1.46' }, status: 'install', download_bytes: 505_000_000 } })) });
   assert.equal(result.engine.status, 'available');
   assert.match(result.engine.message, /needs an engine to run models\. Press Update engine/);
-  result = await checkComponentUpdates({ control: make(report({ engine: { installed: { version: '0.1.46' }, offered: { version: '0.1.46' }, status: 'current' } })) });
+  result = await checkComponentUpdates({ fetcher: forkCurrent, control: make(report({ engine: { installed: { version: '0.1.46' }, offered: { version: '0.1.46' }, status: 'current' } })) });
   assert.equal(result.engine.status, 'current');
-  result = await checkComponentUpdates({ control: make(report({ engine: { installed: null, offered: null, status: 'none-for-this-pc', reasons: ['0.1.46 is for linux-x86_64, this PC is windows-x86_64'] } })) });
+  result = await checkComponentUpdates({ fetcher: forkCurrent, control: make(report({ engine: { installed: null, offered: null, status: 'none-for-this-pc', reasons: ['0.1.46 is for linux-x86_64, this PC is windows-x86_64'] } })) });
   assert.equal(result.engine.status, 'unavailable');
   assert.doesNotMatch(result.engine.message, /windows-x86_64/);
   assert.match(result.engine.details, /windows-x86_64/, 'the technical reason is kept for the Details disclosure');
-  result = await checkComponentUpdates({ control: make(report({ engine: { installed: { version: '0.1.46', backend: 'hip' }, offered: null, status: 'wrong-make', note: 'The engine installed here is for AMD cards, but this update would give your PC NVIDIA one. Nothing was changed.', reasons: ['x'] } })) });
+  result = await checkComponentUpdates({ fetcher: forkCurrent, control: make(report({ engine: { installed: { version: '0.1.46', backend: 'hip' }, offered: null, status: 'wrong-make', note: 'The engine installed here is for AMD cards, but this update would give your PC NVIDIA one. Nothing was changed.', reasons: ['x'] } })) });
   assert.equal(result.engine.status, 'unavailable');
   assert.equal(result.engine.canInstall, false);
   assert.match(result.engine.message, /Nothing was changed/, 'the app says why in plain words, not that no engine exists for the card');
   assert.doesNotMatch(result.engine.message, /isn't an engine for this PC/);
-  result = await checkComponentUpdates({ control: make(new Error('this build trusts no update key')) });
-  assert.equal(result.strata.status, 'error');
+  result = await checkComponentUpdates({ fetcher: forkCurrent, control: make(new Error('this build trusts no update key')) });
+  assert.equal(result.strata.status, 'unavailable');
   assert.equal(result.engine.status, 'error');
   assert.doesNotMatch(result.engine.message, /update key/);
   assert.match(result.engine.details, /no update key/);
   assert.match(result.engine.message, /aren't available in this version/);
   // the app's verdict comes from the shell's updater when the bridge exists
   const appUpdater = { check: async () => ({ available: true, version: '0.2.0', notes: 'Faster starts.' }) };
-  result = await checkComponentUpdates({ control: make(report()), appUpdater, appVersion: '0.1.0' });
+  result = await checkComponentUpdates({ fetcher: forkCurrent, control: make(report()), appUpdater, appVersion: '0.1.0' });
   assert.equal(result.strata.status, 'available');
   assert.equal(result.strata.latestVersion, '0.2.0');
   assert.match(result.strata.message, /new version of Strata is available\. Faster starts/);
@@ -271,14 +272,13 @@ test('packaged: no update while a model is loaded; calibration is still refused'
   } finally { await f.native.close(); f.cleanup(); }
 });
 
-test('packaged: "Update Strata" updates Control through the feed, then the app through the shell', async () => {
+test('packaged: app update uses only the shell, never the upstream component feed', async () => {
   const f = fixture({ withApp: true });
   try {
     await f.native.refresh(true);
     const job = await finish(f.native, f.native.operation('update-strata', {}).id);
     assert.equal(job.state, 'done', job.error);
-    assert.deepEqual(f.calls.map(c => c[0]), ['update', 'app-install']);
-    assert.deepEqual(f.calls[0], ['update', false, true]);
+    assert.deepEqual(f.calls.map(c => c[0]), ['app-install']);
     assert.match(job.summary, /app update is installed\. Strata will restart/);
   } finally { await f.native.close(); f.cleanup(); }
 });
@@ -313,7 +313,7 @@ test('packaged: an app update that ends the app is recorded as finished by the n
 });
 
 test('packaged: an update job an OLDER host left running is finished when the app program file is newer than the job', async () => {
-  const exe = new URL('../../strata-desktop.exe', import.meta.url);          // <install>/strata-desktop.exe as seen from <install>/host
+  const exe = new URL(process.platform === 'win32' ? '../../strata-desktop.exe' : '../../strata-desktop', import.meta.url); // native executable as seen from <install>/host
   const f = fixture({ withApp: true });
   try {
     const { fileURLToPath } = await import('node:url');
@@ -378,13 +378,13 @@ test('first-run card data: an offer with its size, nothing-fits with reasons, of
   assert.equal(offline.status, 'offline');
 });
 
-test('without the shell bridge "Update Strata" still updates Control and says nothing false about the app', async () => {
+test('without the shell bridge app update does not replace fork Control', async () => {
   const f = fixture();
   try {
     await f.native.refresh(true);
     const job = await finish(f.native, f.native.operation('update-strata', {}).id);
-    assert.equal(job.state, 'done', job.error);
-    assert.doesNotMatch(job.summary, /app update is installed/);
+    assert.equal(job.state, 'error');
+    assert.equal(f.calls.some(c => c[0] === 'update'), false);
   } finally { await f.native.close(); f.cleanup(); }
 });
 
@@ -434,11 +434,11 @@ test('a failed update job shows plain words and keeps the technical reason as de
 test('offline, the signed-feed check says there is no internet connection in plain words and keeps the reason in details', async () => {
   for (const raw of ['fetch failed', '<urlopen error [Errno 11001] getaddrinfo failed>', 'getaddrinfo ENOTFOUND updates.example']) {
     const control = { version: '0.1.45', async updateCheck() { throw new Error(raw); } };
-    const result = await checkComponentUpdates({ control, appVersion: '0.2.0' });
+    const result = await checkComponentUpdates({ control, appVersion: '0.2.0', fetcher: async()=>{throw new Error(raw);} });
     assert.equal(result.strata.status, 'error', raw);
     assert.equal(result.strata.message, "No internet connection. Try again when you're online.", raw);
     assert.equal(result.engine.message, "No internet connection. Try again when you're online.", raw);
-    assert.equal(result.strata.details, raw);
+    assert.equal(result.engine.details, raw);
   }
 });
 
@@ -449,4 +449,14 @@ test('the app updater and the host never reach the network by themselves: only c
   assert.equal(calls.length, 0, 'creating the updater makes no call');
   await updater.check();
   assert.equal(calls.length, 1);
+});
+
+
+test('fork app and upstream engine checks stay independent', async () => {
+  const control={updateCheck:async()=>({engine:{status:'available',offered:{version:'9.0'},download_bytes:1},control:{status:'available',offered:'99.0'},app:{status:'available',offered:'99.0'}})};
+  const checked=[];
+  const result=await checkComponentUpdates({control,appVersion:'0.1.0',fetcher:async url=>{checked.push(url);return {ok:true,json:async()=>[{tag_name:'v0.2.0',html_url:'https://github.com/yeli19950109/Strata/releases/tag/v0.2.0'}]};}});
+  assert.equal(result.strata.latestVersion,'v0.2.0');assert.equal(result.strata.canInstall,false);assert.equal(result.engine.latestVersion,'9.0');assert.match(checked[0],/repos\/yeli19950109\/Strata/);
+  const appOnly=await checkComponentUpdates({control:{updateCheck:async()=>{throw new Error('offline engine');}},appUpdater:{check:async()=>({available:true,version:'0.3.0'})},appVersion:'0.1.0'});
+  assert.equal(appOnly.strata.latestVersion,'0.3.0');assert.equal(appOnly.engine.status,'error');
 });

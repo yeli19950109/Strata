@@ -1,8 +1,8 @@
 import { OFFLINE_MESSAGE, looksOffline, plainUpdateError } from './update-messages.mjs';
 
 /** Read-only release checks. Installing/rolling back needs a managed installer. */
-const RELEASES = 'https://api.github.com/repos/Niko1221/Strata/releases?per_page=30';
-const RELEASE_PREFIX = 'https://github.com/Niko1221/Strata/releases/';
+const RELEASES = 'https://api.github.com/repos/yeli19950109/Strata/releases?per_page=30';
+const RELEASE_PREFIX = 'https://github.com/yeli19950109/Strata/releases/';
 
 function versionParts(value) {
   const match = /^v?(\d+)\.(\d+)\.(\d+)(?:\+[\w.-]+)?$/.exec(value ?? '');
@@ -45,54 +45,49 @@ export async function checkUpdates({ appVersion, engineVersion }, fetcher = fetc
 }
 
 /**
- * The packaged app's update check: the signed feed, read by Control (`strata update --check`), plus the shell's own verdict
- * on the app. Same result shape as `checkUpdates`, so the Settings screen needs no change. This is the only place the host
- * reaches the feed, and only when the user presses "Check for updates".
+ * The packaged app's update check: the upstream signed component feed, read by Control, and the fork app's own updater
+ * (or its release metadata in browser mode). These checks are independent and happen only on an explicit request.
  */
-export async function checkComponentUpdates({ control, appUpdater = null, appVersion = null }) {
+export async function checkComponentUpdates({ control, appUpdater = null, appVersion = null, fetcher = fetch }) {
   const checkedAt = new Date().toISOString();
-  let report;
-  try {
-    report = await control.updateCheck({ appVersion });
-  } catch (error) {
-    const plain = plainUpdateError(error, 'Strata');
-    const message = /update server|aren't available|No internet/.test(plain.headline) ? plain.message : `Couldn't check for updates. Try again in a moment.`;
-    return { checkedAt, strata: { installedVersion: appVersion ?? control.version ?? null, status: 'error', message, details: plain.details, canInstall: false }, engine: { installedVersion: null, status: 'error', message, details: plain.details, canInstall: false } };
+  // These are independent sources. Never infer the fork app version from the
+  // upstream component feed, and never hide the app verdict if that feed fails.
+  const appCheck = async () => {
+    if (!appUpdater) return (await checkUpdates({ appVersion, engineVersion: null }, fetcher)).strata;
+    try {
+      const verdict = await appUpdater.check();
+      const available = verdict.available === true;
+      return { installedVersion: appVersion, status: available ? 'available' : 'current',
+        latestVersion: available ? verdict.version : undefined, canInstall: available,
+        message: available ? `A new version of Strata is available.${verdict.notes ? ` ${verdict.notes}` : ''}` : 'Strata is up to date.' };
+    } catch (error) {
+      if (error?.code === 'app-update-unavailable' && appUpdater.unavailable) {
+        const result = (await checkUpdates({ appVersion, engineVersion: null }, fetcher)).strata;
+        return { ...result, canInstall: false, message: `${result.message} ${appUpdater.unavailable}` };
+      }
+      return { installedVersion: appVersion, status: 'error', canInstall: false,
+        message: "Strata couldn't check for a new version of the app itself. Try again later.", details: String(error?.message ?? error) };
+    }
+  };
+  const componentCheck = async () => {
+    try { return { report: await control.updateCheck({ appVersion }) }; }
+    catch (error) { return { error }; }
+  };
+  const [strata, component] = await Promise.all([appCheck(), componentCheck()]);
+  if (component.error) {
+    const plain = plainUpdateError(component.error, 'engine');
+    return { checkedAt, strata, engine: { installedVersion: null, status: 'error', message: plain.message, details: plain.details, canInstall: false } };
   }
-  const mib = bytes => `${Math.round((bytes ?? 0) / 1_000_000)} MB`;      // decimal megabytes, like the Terminal and the release page
+  const report = component.report;
+  const mib = bytes => `${Math.round((bytes ?? 0) / 1_000_000)} MB`;
   const engine = report.engine ?? {};
-  const installedEngine = engine.installed?.version ?? null;
-  const offered = engine.offered?.version ?? null;
-  const engineView = { installedVersion: installedEngine, latestVersion: offered ?? undefined, canInstall: engine.status === 'available' || engine.status === 'install' };
+  const engineView = { installedVersion: engine.installed?.version ?? null, latestVersion: engine.offered?.version ?? undefined, canInstall: engine.status === 'available' || engine.status === 'install' };
   if (engine.status === 'available') Object.assign(engineView, { status: 'available', message: `A new engine is available (${mib(engine.download_bytes)}).` });
   else if (engine.status === 'install') Object.assign(engineView, { status: 'available', message: `This PC needs an engine to run models. Press Update engine to download it (${mib(engine.download_bytes)}).` });
   else if (engine.status === 'current' || engine.status === 'failed-before' || engine.status === 'skipped') Object.assign(engineView, { status: 'current', message: 'The engine is up to date.', details: engine.note });
   else if (engine.status === 'wrong-make') Object.assign(engineView, { status: 'unavailable', message: engine.note ?? 'Nothing was changed: the update was for another make of graphics card.', details: (engine.reasons ?? []).join('\n') || undefined });
   else if (engine.status === 'not-in-feed') Object.assign(engineView, { status: 'current', message: 'No engine update is listed right now.' });
   else Object.assign(engineView, { status: 'unavailable', message: "There isn't an engine for this PC's graphics card yet.", details: (engine.reasons ?? []).join('\n') || undefined });
-  const control_ = report.control ?? {};
-  const app = report.app ?? {};
-  let appNew = app.status === 'available' ? app.offered : null;
-  let appNotes = app.notes ?? '';
-  let appCheckFailed = null;   // the shell's own (Tauri) check threw: before this, the Settings check hid it and showed only Control's text
-  let appCannot = null;   // browser mode: the app window's updater is not running, so the app itself cannot be updated from here
-  if (appUpdater) {
-    try {
-      const verdict = await appUpdater.check();
-      appNew = verdict.available ? verdict.version : null;
-      appNotes = verdict.notes ?? appNotes;
-    } catch (error) {
-      if (error?.code === 'app-update-unavailable' && appUpdater.unavailable) appCannot = appUpdater.unavailable;
-      else appCheckFailed = String(error?.message ?? error ?? 'The app update check failed.');   // the app's own check did not work: say so, raw text behind Details
-    }
-  }
-  const controlNew = control_.status === 'available' ? control_.offered : null;
-  const strata = { installedVersion: appVersion ?? control_.installed ?? control.version ?? null, canInstall: !!((appNew && !appCannot) || controlNew) };
-  const appCheckLine = "Strata couldn't check for a new version of the app itself. Try again later.";
-  if (appNew || controlNew) Object.assign(strata, { status: 'available', latestVersion: appNew ?? controlNew, message: `A new version of Strata is available.${appNotes ? ` ${appNotes}` : ''}${appNew && appCannot ? ` ${appCannot}` : ''}${appCheckFailed ? ` ${appCheckLine}` : ''}` });
-  else if (appCheckFailed) Object.assign(strata, { status: 'error', message: appCheckLine });
-  else Object.assign(strata, { status: 'current', message: 'Strata is up to date.' });
-  if (appCheckFailed) strata.details = appCheckFailed;
   return { checkedAt, feed: report.feed, strata, engine: engineView, serving: report.serving ?? [] };
 }
 

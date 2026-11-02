@@ -3247,6 +3247,11 @@ def engine_args(cfg: dict) -> list[str]:
     config: "auto" by default, or the first layer of each later GPU's share, e.g. "18" or "16,32"; see
     layer_split_value)."""
     args = list(cfg["args"])
+    # An imported command-line run is an explicit ordered argument list. The
+    # desktop sets this only on its temporary launch copy, leaving the saved
+    # file untouched and avoiding automatic drafting or option rewriting.
+    if cfg.get("ui_preserve_engine_args") is True:
+        return args
     # "user_args" (strata_control/user_args.py): the options the person set by hand, over the generated ones at every start,
     # so a setup run or the app rewriting "args" cannot undo them (#3216 #3215 #3270)
     if cfg.get("user_args"):

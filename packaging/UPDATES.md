@@ -183,15 +183,27 @@ a platform with no line gets "this release has no Terminal for <platform>". Uplo
 
 **Linux ARM64 (DGX Spark) has its own feed file.** A Control up to 0.1.52 refuses a feed that names a platform it does not know (`the feed's control entry names an unknown platform`), so the `linux-aarch64` entries are not in `strata-feed.json`, which every released client reads. They are in `strata-feed-linux-aarch64.json` (+ `.sig`, same format, same key, its own `sequence`, aarch64 entries only), uploaded to the same release. A Linux ARM64 Terminal reads that file by default, from a folder or a release address (`strata_control.feed.feed_name()`); a source that names its own `.json` file is used as given. Until every client skips unknown platforms, each release must publish both files, and the aarch64 file's sequence must never go down.
 
-The feed is hosted as the files of a GitHub release of `Niko1221/Strata`. The built-in address is
+The engine and Terminal component feed is hosted as files of a GitHub release of `Niko1221/Strata`. The built-in address is
 `https://github.com/Niko1221/Strata/releases/latest/download` (`strata_cli/update_cmd.py` `DEFAULT_FEED` adds `/strata-feed.json`; `install.sh`
 and `install.ps1` use the folder). GitHub assets are flat, so build the packages with `--url-prefix ""` and upload every file of the release folder
 as an asset: `strata-feed.json`, `strata-feed.json.sig`, `install-manifest.txt`, `install.sh`, `install.ps1`, the engine and Control archives and the
-app installer with `latest.json` (the Tauri updater endpoint). `STRATA_FEED` (installers) and `--feed` / `STRATA_UPDATE_FEED` (`strata update`) override the
-address. Nothing in this tree uploads anything.
+component assets. `STRATA_FEED` (installers) and `--feed` / `STRATA_UPDATE_FEED` (`strata update`) override the
+component feed address. Nothing in this tree uploads anything.
 
-Publish as a normal release (latest): a pre-release is not found by `latest/download`, so the installers, `strata update` and the app updater would get a 404. The `latest` release must carry every file listed above, so a later hotfix release repeats them all. The app updater reads
-`https://github.com/Niko1221/Strata/releases/latest/download/latest.json`.
+In this fork the desktop app updater reads `https://github.com/yeli19950109/Strata/releases/latest/download/latest.json`.
+`set-app-platform` defaults each installer URL to the same fork; `--url` remains available for an explicit alternative.
+Publish the app installer and `latest.json` in a normal fork release: a pre-release is not selected by `latest/download`.
+The component feed and its engine downloads remain on the upstream release independently of the app release. The
+`STRATA_UPDATE_APP_ENDPOINT` override still selects an explicitly configured app endpoint.
+
+The default updater public key in `tauri.conf.json` is inherited from upstream and is not a fork release key. The fork
+release workflow injects `FORK_TAURI_PUBLIC_KEY` into a release-only Tauri configuration, signs with the corresponding
+Actions secret, and verifies each finished updater artifact before creating a draft. The first fork-key build must be
+installed manually before later updates signed by that key can be accepted. Configuration, approvals, and OS signing
+limitations are in [Fork CI](../docs/FORK_CI.md#fork-updater-release-preparation). Never disable signature verification or
+commit a private key. Merely changing the endpoint does not make fork updates ready.
+The desktop uses its bundled fork Control before any older separately updated upstream Control; app updates replace the
+bundle, while the engine update continues to use the component feed.
 
 ## Testing locally
 

@@ -81,7 +81,7 @@ test('an opener that is missing or fails fast is a failure; one still running is
 test('update check in browser mode: the app part says it cannot be done here, engine/component updates stay possible', async () => {
   const control = { version: '0.1.0', updateCheck: async () => ({ app: { status: 'available', offered: '0.2.0', notes: 'Faster.' }, engine: { status: 'current', installed: { version: '1' } }, control: { status: 'current' } }) };
   const browser = createAppUi({ env: { STRATA_UI_MODE: 'browser' } });
-  const inBrowser = await checkComponentUpdates({ control, appUpdater: browser.updater, appVersion: '0.1.0' });
+  const inBrowser = await checkComponentUpdates({ control, appUpdater: browser.updater, appVersion: '0.1.0', fetcher: async()=>({ok:true,json:async()=>[{tag_name:'v0.2.0',html_url:'https://github.com/yeli19950109/Strata/releases/tag/v0.2.0'}]}) });
   assert.equal(inBrowser.strata.status, 'available');
   assert.equal(inBrowser.strata.canInstall, false);
   assert.match(inBrowser.strata.message, /can't be updated in browser mode/);

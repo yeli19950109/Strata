@@ -1,11 +1,8 @@
 name: Scripts test
 
+# Fork: the issue-intake scripts are not part of desktop CI.
 on:
-  pull_request:
-    paths:
-      - '.github/scripts/**'
-      - '.github/workflows/intake.yml'
-      - '.github/workflows/reopen.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read
