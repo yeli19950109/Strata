@@ -12,7 +12,10 @@ class ExternalEngineUpdate(TestCase):
     def setUp(self):
         self.tmp = TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        root = Path(self.tmp.name)
+        # macOS /var and Windows temporary paths can include system aliases.
+        # Test using the canonical directory without weakening link checks.
+        root = Path(self.tmp.name).resolve()
+        self.root = root
         self.key = make_key()
         self.trusted = trusted_of(self.key)
         one = build_package(root / 'old', '0.1.45', key=self.key)
@@ -32,7 +35,7 @@ class ExternalEngineUpdate(TestCase):
         # retaining the user's private manifest or running an engine.
         import hashlib, json, os
         from tests.terminal.update_fixture import feed_tool
-        base = Path(self.tmp.name)
+        base = self.root
         old, new = base / 'hip old', base / 'hip new'
         paths = ['strata.exe', 'BUILD.json'] + [f'rocm/bin/lib-{n:04}.dll' for n in range(828)]
         for root, version in ((old, '0.1.48'), (new, '0.1.49')):
