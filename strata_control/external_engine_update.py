@@ -154,6 +154,16 @@ def _digest(path: Path) -> str:
     return h.hexdigest()
 
 
+def _copy_backup(source: Path, dest: Path) -> None:
+    # Windows cannot fsync a read-only descriptor. Flush the writable copy
+    # before applying source permissions, which may themselves be read-only.
+    with source.open('rb') as inp, dest.open('xb') as out:
+        shutil.copyfileobj(inp, out, 1024 * 1024)
+        out.flush()
+        os.fsync(out.fileno())
+    shutil.copystat(source, dest)
+
+
 def _regular(path: Path, root: Path, *, absent=False) -> bool:
     """Reject links at every existing path component, including Windows junctions."""
     relative = path.relative_to(root)
@@ -374,16 +384,12 @@ def apply_staged(exe: Path, stage: Path, trusted: dict, backup_root: Path, expec
     for rel in replacements:
         dest = backup / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(root / rel, dest)
-        with dest.open('rb') as saved:
-            os.fsync(saved.fileno())
+        _copy_backup(root / rel, dest)
         _sync_dir(dest.parent)
         if _digest(dest) != old_hashes[rel] or _digest(root / rel) != old_hashes[rel]:
             raise ExternalUpdateError('The engine changed or the backup could not be verified; no engine files were changed.')
     (backup / 'new-manifest').mkdir()
-    shutil.copy2(Path(stage) / ec.MANIFEST, backup / 'new-manifest' / ec.MANIFEST)
-    with (backup / 'new-manifest' / ec.MANIFEST).open('rb') as saved:
-        os.fsync(saved.fileno())
+    _copy_backup(Path(stage) / ec.MANIFEST, backup / 'new-manifest' / ec.MANIFEST)
     _sync_dir(backup / 'new-manifest')
     _sync_dir(backup)
     record = {'root': str(root), 'backup': str(backup), 'entrypoint': current.entrypoint,

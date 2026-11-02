@@ -30,6 +30,19 @@ class ExternalEngineUpdate(TestCase):
     def run_update(self):
         return ext.apply_staged(self.exe, self.stage, self.trusted, self.backups, self.old_hash, self.new_hash)
 
+    def test_backup_syncs_a_writable_descriptor(self):
+        import os
+        source = self.root / 'source'
+        dest = self.root / 'backup'
+        source.write_bytes(b'backup content')
+        sync = os.fsync
+        def assert_writable(fd):
+            os.write(fd, b'')
+            sync(fd)
+        with mock.patch.object(ext.os, 'fsync', side_effect=assert_writable):
+            ext._copy_backup(source, dest)
+        self.assertEqual(dest.read_bytes(), b'backup content')
+
     def test_windows_hip_manifest_shape_and_large_file_list(self):
         # Synthetic files only: exercise the reported schema and scale without
         # retaining the user's private manifest or running an engine.
