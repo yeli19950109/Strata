@@ -22,6 +22,7 @@ on:
       - 'packaging/feed_tool.py'
       - 'packaging/binary_deps.py'
       - 'tests/terminal/test_external_engine_update.py'
+      - 'tests/terminal/test_engine_component.py'
       - 'tests/terminal/test_fork_release.py'
       - 'tests/terminal/update_fixture.py'
       - 'packaging/locks/**'
@@ -48,6 +49,7 @@ on:
       - 'packaging/feed_tool.py'
       - 'packaging/binary_deps.py'
       - 'tests/terminal/test_external_engine_update.py'
+      - 'tests/terminal/test_engine_component.py'
       - 'tests/terminal/test_fork_release.py'
       - 'tests/terminal/update_fixture.py'
       - 'packaging/locks/**'
@@ -82,7 +84,7 @@ jobs:
         working-directory: apps/host
       - name: External engine update security tests (stdlib only)
         # Signed temporary stubs and loopback HTTP only; no real engine or GPU.
-        run: python -m unittest tests.terminal.test_external_engine_update -q
+        run: python -m unittest tests.terminal.test_external_engine_update tests.terminal.test_engine_component -q
       - name: Fork release configuration tests
         run: python -m unittest tests.terminal.test_fork_release -q
       - name: Find browser for UI test

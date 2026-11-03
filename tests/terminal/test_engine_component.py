@@ -81,6 +81,18 @@ class Resolution(unittest.TestCase):
         self.root = Path(self.dir.name)
         self.addCleanup(self.dir.cleanup)
 
+    def test_manifest_data_can_be_validated_without_reopening_a_path(self):
+        folder = make_package(self.root)
+        data = json.loads((folder / ec.MANIFEST).read_text(encoding='utf-8'))
+        expected = ec.read_manifest(folder)
+        with mock.patch.object(Path, 'read_text', side_effect=AssertionError('must not reopen a path')):
+            actual = ec.parse_manifest(data, folder)
+            self.assertEqual((actual.version, actual.entrypoint, actual.files),
+                             (expected.version, expected.entrypoint, expected.files))
+            bad = {**data, 'entrypoint': '../outside'}
+            with self.assertRaises(ec.ComponentProblem):
+                ec.parse_manifest(bad, folder)
+
     def test_the_package_for_the_backend_is_chosen(self):
         make_package(self.root, backend="cuda")
         make_package(self.root, backend="hip", version="0.1.46")

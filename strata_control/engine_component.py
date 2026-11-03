@@ -298,6 +298,15 @@ def read_manifest(folder: Path) -> EngineComponent:
         raise ComponentProblem(f"{MANIFEST} is missing") from None
     except (OSError, ValueError) as exc:
         raise ComponentProblem(f"{MANIFEST} is not valid JSON ({type(exc).__name__})") from None
+    return parse_manifest(data, folder)
+
+
+def parse_manifest(data: object, folder: Path) -> EngineComponent:
+    """Validate an already-read manifest without reopening it by path.
+
+    Callers that hold an OS file handle can verify the exact bytes they read;
+    ordinary callers retain the path-based read_manifest wrapper above.
+    """
     if not isinstance(data, dict) or data.get("schema_version") not in READABLE_SCHEMAS:
         raise ComponentProblem(f"{MANIFEST} has an unsupported schema_version")
     schema = data["schema_version"]
