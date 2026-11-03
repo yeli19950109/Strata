@@ -81,8 +81,11 @@ export async function checkComponentUpdates({ control, appUpdater = null, appVer
   const report = component.report;
   const mib = bytes => `${Math.round((bytes ?? 0) / 1_000_000)} MB`;
   const engine = report.engine ?? {};
-  const engineView = { installedVersion: engine.installed?.version ?? null, latestVersion: engine.offered?.version ?? undefined, canInstall: engine.status === 'available' || engine.status === 'install' };
-  if (engine.status === 'available') Object.assign(engineView, { status: 'available', message: `A new engine is available (${mib(engine.download_bytes)}).` });
+  const installedEngine = engine.installed?.version ?? null;
+  const offered = engine.offered?.version ?? null;
+  const engineView = { installedVersion: installedEngine, latestVersion: offered ?? undefined, canInstall: engine.status === 'available' || engine.status === 'install' };
+  if (engine.status === 'available' && engine.installed_locally) Object.assign(engineView, { status: 'available', message: 'A newer engine is already on this computer. Update switches to it; nothing is downloaded.' });
+  else if (engine.status === 'available') Object.assign(engineView, { status: 'available', message: `A new engine is available (${mib(engine.download_bytes)}).` });
   else if (engine.status === 'install') Object.assign(engineView, { status: 'available', message: `This PC needs an engine to run models. Press Update engine to download it (${mib(engine.download_bytes)}).` });
   else if (engine.status === 'current' || engine.status === 'failed-before' || engine.status === 'skipped') Object.assign(engineView, { status: 'current', message: 'The engine is up to date.', details: engine.note });
   else if (engine.status === 'wrong-make') Object.assign(engineView, { status: 'unavailable', message: engine.note ?? 'Nothing was changed: the update was for another make of graphics card.', details: (engine.reasons ?? []).join('\n') || undefined });

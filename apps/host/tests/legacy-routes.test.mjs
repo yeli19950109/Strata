@@ -32,6 +32,8 @@ test('preview, engine choice, offline status and dismissed setup persist without
   const preview=await call('/api/native/legacy/preview','POST',{text:source});assert.equal(preview.status,200);assert.equal(preview.body.config.exe,'Y:\\Strata\\engine\\strata.exe');assert.deepEqual(preview.body.config.args,['--pack','Y:\\模型 1\\pack']);
   assert.equal((await call('/api/native/legacy/preview','POST',{text:'{'})).status,400);
   const selected=await call('/api/native/external-engine','POST',{path:engine});assert.equal(selected.status,200);assert.equal(selected.body.path,engine);assert.equal(selected.body.usable,true);
+  assert.equal((await call('/api/engines/remove','POST',{family:'qwen',folder:'0.1.56'})).status,409);
+  assert.equal((await call('/api/engines/use','POST',{family:'qwen',folder:'0.1.56'})).status,409);
   await call('/api/setup/step','POST',{step:1,flowVersion:2,dismissed:true});
   await stop();await start();
   let status=(await call('/api/control/status')).body.externalEngine;assert.equal(status.selected,true);assert.equal(status.path,engine);assert.equal((await call('/api/setup')).body.dismissed,true);
