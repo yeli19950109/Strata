@@ -80,5 +80,9 @@ else if(args.includes('engine'))console.log(JSON.stringify({usable:false,notice:
   await call('/api/setup/step','POST',{step:1,flowVersion:2,dismissed:true});await stop();await start();
   assert.equal((await call('/api/setup')).body.dismissed,true);const status=await call('/api/native?refresh=1');assert.equal(status.body.installed.models.find(m=>m.model==='mine').externalImport,true);
   const saved=await (await import('node:fs/promises')).readFile(join(home,'data','legacy-models','strata-mine.json'),'utf8');assert.equal(saved,text);
+  const opened=await call('/api/native/legacy/mine/config');assert.equal(opened.status,200);assert.equal(opened.body.text,text);
+  const changed=text.replace('Existing','Existing edited');const updated=await call('/api/native/legacy/mine/config','POST',{text:changed,configHash:opened.body.configHash});assert.equal(updated.status,200,JSON.stringify(updated.body));
+  assert.equal((await call('/api/native/legacy/mine/config','POST',{text,configHash:opened.body.configHash})).status,400);
+  await stop();await start();const reopened=await call('/api/native/legacy/mine/config');assert.equal(reopened.body.text,changed);assert.equal((await call('/api/native?refresh=1')).body.installed.models.find(m=>m.model==='mine').externalImport,true);
  } finally {await stop();await rm(home,{recursive:true,force:true,maxRetries:10,retryDelay:200});}
 });

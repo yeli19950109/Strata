@@ -10,6 +10,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import stat
 import sys
@@ -152,6 +153,77 @@ def _digest(path: Path) -> str:
         for part in iter(lambda: f.read(1024 * 1024), b''):
             h.update(part)
     return h.hexdigest()
+
+
+_BACKUP_NAME = re.compile(r'external-engine-backup-[a-z0-9_]{8}\Z')
+
+def _backup_info(root: Path, folder: Path, trusted: dict, *, verify_bytes=False):
+    """Recognise only signed update backups, rejecting links and unknown contents."""
+    if folder.parent != root or not _BACKUP_NAME.fullmatch(folder.name):
+        raise ExternalUpdateError('This is not an app-managed engine backup.')
+    _private_dir(folder)
+    for manifest in (folder / ec.MANIFEST, folder / 'new-manifest' / ec.MANIFEST):
+        _regular(manifest, folder)
+    old, new = ec.read_manifest(folder), ec.read_manifest(folder / 'new-manifest')
+    previous = ec._verifier
+    signing.install_component_verifier(trusted)
+    try:
+        ec.verify_signature(old, {ec.ENV_REQUIRE_SIGNED:'1'})
+        ec.verify_signature(new, {ec.ENV_REQUIRE_SIGNED:'1'})
+    finally:
+        ec.register_signature_verifier(previous)
+    allowed = {p:(digest,size) for p,digest,size in old.files}
+    allowed[ec.MANIFEST] = None
+    allowed['new-manifest/' + ec.MANIFEST] = None
+    dirs = {'new-manifest'}
+    for path in allowed:
+        parent = Path(path).parent
+        while str(parent) not in ('.',''):
+            dirs.add(parent.as_posix()); parent = parent.parent
+    total=0
+    def fail(error): raise error
+    for parent, children, files in os.walk(folder, followlinks=False, onerror=fail):
+        for name in children + files:
+            item=Path(parent)/name; rel=item.relative_to(folder).as_posix(); st=item.lstat()
+            if item.is_symlink() or getattr(st,'st_file_attributes',0)&0x400:
+                raise ExternalUpdateError('The backup contains a link and cannot be deleted here.')
+            if stat.S_ISDIR(st.st_mode):
+                if rel not in dirs: raise ExternalUpdateError('The backup contains an unrecognised folder.')
+            elif stat.S_ISREG(st.st_mode) and st.st_nlink == 1:
+                if rel not in allowed: raise ExternalUpdateError('The backup contains an unrecognised file.')
+                spec=allowed[rel]
+                if spec and (st.st_size != spec[1] or (verify_bytes and _digest(item) != spec[0])):
+                    raise ExternalUpdateError('The backup contains a modified file.')
+                total+=st.st_size
+            else: raise ExternalUpdateError('The backup contains a shared or unusual file.')
+    return {'id':folder.name,'path':str(folder),'version':old.version,'targetVersion':new.version,'modifiedAt':folder.stat().st_mtime,'bytes':total}
+
+def list_backups(state: Path, trusted: dict):
+    root=state/'backups'
+    if not root.exists() and not root.is_symlink(): return []
+    _private_dir(root)
+    result=[]
+    for folder in sorted(root.iterdir()):
+        if not _BACKUP_NAME.fullmatch(folder.name): continue
+        try: result.append({**_backup_info(root,folder,trusted),'deletable':True})
+        except (OSError,ValueError,ec.ComponentProblem,signing.SignatureError):
+            result.append({'id':folder.name,'path':str(folder),'deletable':False})
+    return result
+
+def delete_backup(state: Path, backup_id: str, trusted: dict, selected: Path | None = None):
+    root=state/'backups';_private_dir(root)
+    if not _BACKUP_NAME.fullmatch(backup_id or ''): raise ExternalUpdateError('Choose an app-managed engine backup.')
+    if (root/'pending.json').exists() or (root/'pending.json').is_symlink(): raise ExternalUpdateError('Restore the interrupted update before deleting backups.')
+    folder=root/backup_id
+    if selected:
+        try: selected.resolve().relative_to(folder.resolve())
+        except ValueError: pass
+        else: raise ExternalUpdateError('This backup contains the selected engine and cannot be deleted.')
+    info=_backup_info(root,folder,trusted,verify_bytes=True)
+    # Refuse links/unowned files above; remove only the exact verified backup.
+    shutil.rmtree(folder)
+    _sync_dir(root)
+    return info
 
 
 def _copy_backup(source: Path, dest: Path) -> None:
@@ -473,10 +545,20 @@ def main():
     p.add_argument('--status', action='store_true')
     p.add_argument('--old-sha')
     p.add_argument('--new-sha')
+    p.add_argument('--progress-json', action='store_true')
+    p.add_argument('--list-backups', action='store_true')
+    p.add_argument('--delete-backup')
     a = p.parse_args()
     try:
         state = Path(a.state)
         _private_dir(state, create=True)
+        if a.list_backups:
+            print(json.dumps({'ok':True,'backups':list_backups(state,signing.load_trusted_keys())},ensure_ascii=False))
+            return 0
+        if a.delete_backup:
+            result=delete_backup(state,a.delete_backup,signing.load_trusted_keys(),Path(a.exe) if a.exe else None)
+            print(json.dumps({'ok':True,'deleted':result},ensure_ascii=False))
+            return 0
         if a.status:
             pending = state / 'backups' / 'pending.json'
             if pending.exists() or pending.is_symlink():
@@ -497,7 +579,10 @@ def main():
             if pending.exists() or pending.is_symlink():
                 raise ExternalUpdateError('An earlier engine update needs recovery. Use Recover before trying again.')
         source = _feed_source(SimpleNamespace(feed=None), ec.components_dir())
-        ctx = updater.Context(components=state / 'components', source=source, trusted=signing.load_trusted_keys(), hardware=updater.detect_hardware())
+        def report_progress(event):
+            if a.progress_json and event.get('event') == 'progress' and event.get('phase') == 'download':
+                print('STRATA_PROGRESS ' + json.dumps({'done': event.get('done'), 'total': event.get('total')}), file=sys.stderr, flush=True)
+        ctx = updater.Context(components=state / 'components', source=source, trusted=signing.load_trusted_keys(), hardware=updater.detect_hardware(), emit=report_progress)
         if a.recover:
             with _exclusive_runtime():
                 _ensure_not_running(Path(a.exe))

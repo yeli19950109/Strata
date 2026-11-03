@@ -3,6 +3,7 @@ import { engineProgressMark } from './agent/engine-progress.mjs';
 import { previewLegacyRunConfig } from './legacy-run-config.mjs';
 import { createExternalEngine } from './external-engine.mjs';
 import { createExternalEngineUpdate } from './external-engine-update-api.mjs';
+import { chooseEngineFile } from './engine-file-dialog.mjs';
 import './system-ca.mjs';        // #3722: the operating system's certificates, before any HTTPS request
 import { createCloudflare } from './cloudflare.mjs';
 import { createConnectorInstaller } from './cloudflared-install.mjs';
@@ -1010,16 +1011,22 @@ async function api(req, res, path, method, url) {
   if(path==='/api/native'&&method==='PATCH')return json(res,200,await native.configure(await readBody(req)));
   if(path==='/api/native/directory'&&method==='POST')return json(res,200,native.setDownloadDirectory((await readBody(req)).directory));
   if(path==='/api/native/external-engine'&&method==='GET')return json(res,200,externalEngine.status());
-  if(path==='/api/native/external-engine/update/status'&&method==='GET')return json(res,200,{pendingRecovery:externalEngineUpdate.pending()});
+  if(path==='/api/native/external-engine/choose'&&method==='POST')return json(res,200,await chooseEngineFile());
+  if(path==='/api/native/external-engine/update/status'&&method==='GET')return json(res,200,{pendingRecovery:externalEngineUpdate.pending(),...externalEngineUpdate.status()});
+  if(path==='/api/native/external-engine/backups'&&method==='GET')return json(res,200,{backups:await externalEngineUpdate.backups(),pendingRecovery:externalEngineUpdate.pending()});
+  if(path==='/api/native/external-engine/backups/delete'&&method==='POST'){const {id}=await readBody(req);return json(res,200,await externalEngineUpdate.deleteBackup(id));}
   if(path==='/api/native/external-engine'&&method==='POST'){if(externalEngineUpdate.pending())throw new Error('Restore the interrupted external engine update before changing the engine.');const {path:enginePath}=await readBody(req);return json(res,200,await native.selectExternalEngine(enginePath));}
   if(path==='/api/native/external-engine'&&method==='DELETE'){if(externalEngineUpdate.pending())throw new Error('Restore the interrupted external engine update before changing the engine.');return json(res,200,await native.clearExternalEngine());}
   if(path==='/api/native/external-engine/update/check'&&method==='POST')return json(res,200,await externalEngineUpdate.check());
   if(path==='/api/native/external-engine/update/apply'&&method==='POST'){const body=await readBody(req);return json(res,200,await externalEngineUpdate.apply(body.confirmationToken));}
   if(path==='/api/native/external-engine/update/recover'&&method==='POST')return json(res,200,await externalEngineUpdate.recover());
-  if(path==='/api/native/legacy/preview'&&method==='POST'){const {text}=await readBody(req,2*1024*1024);const preview=previewLegacyRunConfig(text);return json(res,200,{config:preview.config,issues:preview.issues,overrides:preview.overrides});}
+  if(path==='/api/native/legacy/preview'&&method==='POST'){const {text}=await readBody(req,2*1024*1024);const preview=previewLegacyRunConfig(text);return json(res,200,{config:preview.config,issues:preview.issues,knownModel:preview.knownModel,overrides:preview.overrides});}
   if(path==='/api/native/legacy/import'&&method==='POST'){if(externalEngineUpdate.pending())throw new Error('Restore the interrupted external engine update before importing a configuration.');const {text,id}=await readBody(req,2*1024*1024);return json(res,200,await native.importLegacy(text,id));}
   const legacyReview=/^\/api\/native\/legacy\/([a-z0-9_.-]+)\/load-review$/i.exec(path);
   if(legacyReview&&method==='GET')return json(res,200,native.legacyLoadReview(legacyReview[1]));
+  const legacyConfig=/^\/api\/native\/legacy\/([a-z0-9_.-]+)\/config$/i.exec(path);
+  if(legacyConfig&&method==='GET'){await native.refresh(true);return json(res,200,native.readLegacy(legacyConfig[1]));}
+  if(legacyConfig&&method==='POST'){const body=await readBody(req,2*1024*1024);return json(res,200,await native.editLegacy(legacyConfig[1],body.text,body.configHash));}
   /* Settings > Storage > Models folder: pick (or type) a folder, say what it means, then start the choice. Copying is Control's (strata models move). */
   if(path==='/api/native/models-folder/plan'&&method==='POST'){
    const typed=await typedFolder((await readBody(req)).path,{isAbsolute});

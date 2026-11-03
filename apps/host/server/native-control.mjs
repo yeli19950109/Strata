@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import {chooseParallel,applyParallel,withoutParallel,FALLBACK_NOTE} from './native-parallel.mjs';
 import { randomBytes, randomUUID, createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync, realpathSync, lstatSync, copyFileSync, renameSync, rmSync, statfsSync, unlinkSync, chmodSync, statSync, accessSync, constants } from 'node:fs';
-import { join, resolve, dirname, basename, sep, relative, isAbsolute } from 'node:path';
+import { join, resolve, dirname, basename, sep, relative, isAbsolute, win32 } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:net';
 import { NATIVE_FIELDS, APP_OWNED_FIELDS, withoutDraftLayer, resolveDrafter, validateNativeSettings, validateMcpServers, publicMcpServers, publicNativeEnv, restoreNativeEnv, speedSwitchRows } from './native-settings.mjs';
@@ -25,7 +25,7 @@ import { markEngine, engineRefusal } from './engine-version.mjs';
 import { friendlyModelName } from './model-names.mjs';
 import { parseSaved as parseRoles, mirror as mirrorRoles } from './gpu-roles.mjs';
 import { configContextLimit } from './dsv41-context.mjs';
-import { checkedLegacyDirectory, saveLegacyRunConfig } from './legacy-run-config.mjs';
+import { checkedLegacyDirectory, identifySc117, saveLegacyRunConfig, updateLegacyRunConfig } from './legacy-run-config.mjs';
 import { createExternalEngine } from './external-engine.mjs';
 
 const ROOT=resolve(dirname(fileURLToPath(import.meta.url)),'..');
@@ -136,12 +136,12 @@ export function createNativeControl({directory,requests=()=>[],changed=()=>{},sp
    const installer=await mcpCall('strata_status',{hardware:true}).catch(error=>({error:error.message}));
    const disk=Object.fromEntries((installer.installed?.models??[]).map(m=>[m.model,{diskGb:m.disk_gb,diskBytes:m.disk_bytes,sharedBytes:m.shared_bytes,removableGb:m.removable_gb,partsMissing:m.parts_missing??0,missingFiles:m.missing_files}]));
    const onlyPictures=m=>m.component_status==='missing_or_invalid'&&Array.isArray(m.missing)&&m.missing.length>0&&m.missing.every(p=>p?.part==='vision/mmproj')&&Array.isArray(m.issue_codes)&&m.issue_codes.length===m.missing.length&&m.issue_codes.every(c=>/^COMPONENT_(MISSING|INVALID)$/.test(c));
-   const imported=(legacy.models??[]).filter(m=>m.source_config&&isLegacyPath(m.source_config));
+   const imported=(legacy.models??[]).filter(m=>m.source_config&&isLegacyPath(m.source_config)).map(m=>({...m,knownModel:identifySc117(readJson(m.source_config,null))}));
    const importedIds=new Set(imported.map(m=>m.id));
    const useExternal=m=>externalEngine.status().selected&&readJson(m.source_config,null)?.exe==='component:strata-engine';
    const missingWithoutEngine=m=>(m.missing??[]).filter(x=>x.part!=='engine');
    const readyWithExternal=m=>useExternal(m)&&externalEngine.status().usable&&Array.isArray(m.missing)&&m.missing.length>0&&missingWithoutEngine(m).length===0;
-   const models=[...imported.map(m=>({...m,externalImport:true})),...(list.models??[]).filter(m=>!importedIds.has(m.id))].filter(m=>(m.externalImport||m.component_status!=='invalid')&&m.source_config).map(m=>({...(m.externalImport?{}:disk[m.id]??{}),model:m.id,config:basename(m.source_config),configPath:m.source_config,model_name:m.name,context:m.context_tokens??0,backend:m.backend,externalImport:!!m.externalImport,picturesMissing:!m.externalImport&&m.component_status!=='present'&&onlyPictures(m),ready:(!useExternal(m)||externalEngine.status().usable)&&(m.component_status==='present'||readyWithExternal(m)||(!m.externalImport&&onlyPictures(m)))&&(m.externalImport||!disk[m.id]?.partsMissing),missing:missingNames(useExternal(m)?[...missingWithoutEngine(m),...(!externalEngine.status().usable?[{part:'engine'}]:[])]:m.missing,m.externalImport?undefined:disk[m.id]?.missingFiles),images:'off',port:undefined,last_used:null}));
+   const models=[...imported.map(m=>({...m,externalImport:true})),...(list.models??[]).filter(m=>!importedIds.has(m.id))].filter(m=>(m.externalImport||m.component_status!=='invalid')&&m.source_config).map(m=>({...(m.externalImport?{}:disk[m.id]??{}),model:m.id,config:basename(m.source_config),configPath:m.source_config,model_name:m.name,context:m.context_tokens??0,backend:m.backend,externalImport:!!m.externalImport,knownModel:m.externalImport?m.knownModel:null,picturesMissing:!m.externalImport&&m.component_status!=='present'&&onlyPictures(m),ready:(!useExternal(m)||externalEngine.status().usable)&&(m.component_status==='present'||readyWithExternal(m)||(!m.externalImport&&onlyPictures(m)))&&(m.externalImport||!disk[m.id]?.partsMissing),missing:missingNames(useExternal(m)?[...missingWithoutEngine(m),...(!externalEngine.status().usable?[{part:'engine'}]:[])]:m.missing,m.externalImport?undefined:disk[m.id]?.missingFiles),images:'off',port:undefined,last_used:null}));
    const cores=os.cpus().length;
    return {summary:engine.usable?`Strata Control is ready; engine ${engine.engine.version} (${engine.engine.platform}-${engine.engine.backend}).`:(engine.notice??'No engine for this PC was found.'),
     installDir:list.install_dir,engine:{usable:engine.usable,notice:engine.notice,wrongMake:engine.wrongMake===true,version:engine.engine?.version??null,backend:engine.backend,componentsDir:engine.components_dir,previous:engine.previous??null,pinned:engine.pinned??null,updateNotice:engine.update_notice??null,updateAvailable:engine.update_available??null},
@@ -164,7 +164,7 @@ export function createNativeControl({directory,requests=()=>[],changed=()=>{},sp
  }
  function configure({repository}){if(packaged){if(instances.size||[...jobs.values()].some(j=>j.state==='running'))throw new Error('Unload models and finish operations before changing the installation.');const next=realpathSync(String(repository));if(!statSync(next).isDirectory())throw new Error('Choose the folder that holds your Strata model configurations.');preferences={...preferences,installDir:next};packagedInstall=null;disconnect();writeFileSync(settingsPath,JSON.stringify(preferences,null,2),{mode:0o600});lastRead=0;return refresh(true);}if(instances.size||[...jobs.values()].some(j=>j.state==='running'))throw new Error('Unload models and finish operations before changing the installation.');const next=realpathSync(String(repository));const old=preferences;preferences={...preferences,repo:next};try{repo();}catch(e){preferences=old;throw e;}disconnect();writeFileSync(settingsPath,JSON.stringify(preferences,null,2),{mode:0o600});lastRead=0;return refresh(true);}
  function setDownloadDirectory(input,{insideJob=false}={}){if(!insideJob&&[...jobs.values()].some(j=>j.state==='running'))throw new Error('Finish the current operation before changing the folder.');if(typeof input!=='string'||!input.trim()||/[\r\n\0]/.test(input))throw new Error('Choose a model folder.');let path;try{path=realpathSync(input.trim());}catch{throw new Error('That folder does not exist. Check the path, or that the drive is connected.');}if(!statSync(path).isDirectory())throw new Error('Choose a folder, not a file.');/* A whole drive (D:\) is not filled with models: D:\Strata is made and used. */if(isDriveRoot(path)){const own=dataFolderFromPick(path).path;makeFolder(own);path=realpathSync(own);}try{accessSync(path,constants.R_OK|constants.W_OK);}catch{throw new Error('Strata cannot write in that folder. Choose a folder you can save files in.');}preferences={...preferences,downloadDirectory:path};/* the same choice for the installer and the Terminal: the Control settings file */if(packaged)rememberDataFolder(controlSettingsFile(),path,Date.now()/1000,true);writeFileSync(settingsPath,JSON.stringify(preferences,null,2),{mode:0o600});shareDataFolder();emit();return state();}
- function recordFile(model){if(!safeId(model))throw new Error('Choose an installed model.');const entry=snapshot.installed?.models?.find(i=>i.model===model);if(!entry)throw new Error('This model is not installed. Download and prepare it first.');const path=realpathSync(entry.configPath??join(repo(),entry.config));if((dirname(path)!==repo()&&!isLegacyPath(path))||!/^strata-[a-z0-9_.-]+\.json$/i.test(basename(path)))throw new Error('The model configuration is outside the Strata installation.');return {entry,path};}
+ function recordFile(model){if(!safeId(model))throw new Error('Choose an installed model.');const entry=snapshot.installed?.models?.find(i=>i.model===model);if(!entry)throw new Error('This model is not installed. Download and prepare it first.');const original=entry.configPath??join(repo(),entry.config);if(entry.externalImport&&!isLegacyPath(original))throw new Error('The imported configuration is outside the app folder.');const path=realpathSync(original);if((dirname(path)!==repo()&&!isLegacyPath(path))||!/^strata-[a-z0-9_.-]+\.json$/i.test(basename(path)))throw new Error('The model configuration is outside the Strata installation.');return {entry,path};}
  async function selectExternalEngine(path){if(instances.size||[...jobs.values()].some(j=>j.state==='running'))throw new Error('Unload models and finish operations before changing the engine.');externalEngine.select(path);lastRead=0;await refresh(true);return externalEngine.status();}
  async function clearExternalEngine(){if(instances.size||[...jobs.values()].some(j=>j.state==='running'))throw new Error('Unload models and finish operations before changing the engine.');externalEngine.clear();lastRead=0;await refresh(true);return externalEngine.status();}
  async function importLegacy(text,id){if(!packaged)throw new Error('Importing a run configuration is available in the app.');if(importPending||instances.size||[...jobs.values()].some(j=>j.state==='running'))throw new Error('Unload models and finish operations before importing.');importPending=true;try{await refresh(true);if(!snapshot.available)throw new Error(snapshot.error??'Strata is not ready.');if(snapshot.installed?.models?.some(m=>m.model.toLowerCase()===String(id).toLowerCase()))throw new Error('A model with this name already exists. Choose another name.');checkedLegacyDirectory(legacyRoot(),{create:true});saveLegacyRunConfig(legacyRoot(),id,text);lastRead=0;return await refresh(true);}finally{importPending=false;}}
@@ -176,6 +176,8 @@ export function createNativeControl({directory,requests=()=>[],changed=()=>{},sp
  function checkedSettingsConfig(text){const check=checkAndParseRunConfig(text);if(!check.ok)throw new Error(`The settings file for this model has a mistake, so the model was not started. ${describeIssues(check.issues,'error').join(' ')}`);return check.config;}
  /* Review the current command, not the potentially stale import preview. */
  function legacyLoadReview(model){const {entry,path}=recordFile(model);if(!entry.externalImport)throw new Error('Choose an imported configuration.');const text=readFileSync(path,'utf8'),config=checkedSettingsConfig(text);return {beforeLoad:config.before_load??null,configHash:createHash('sha256').update(text).digest('hex')};}
+ function readLegacy(model){const {entry,path}=recordFile(model);if(!entry.externalImport)throw new Error('Choose an imported configuration.');const text=readFileSync(path,'utf8');return {text,configHash:createHash('sha256').update(text).digest('hex')};}
+ async function editLegacy(model,text,configHash){if(importPending||[...jobs.values()].some(j=>j.state==='running')||[...instances.values()].some(i=>i.model===model))throw new Error('Unload the model and finish current operations before editing.');const {entry}=recordFile(model);if(!entry.externalImport)throw new Error('Choose an imported configuration.');updateLegacyRunConfig(legacyRoot(),model,text,configHash);lastRead=0;return refresh(true);}
  function settings(model){const {entry,config}=record(model);const values=Object.fromEntries(NATIVE_FIELDS.map(f=>[f.id,config[f.id]??null]));if(typeof values.aliases==='string')values.aliases=values.aliases.split(',').map(v=>v.trim()).filter(Boolean);values.sampling=config.sampling??{};values.args=config.args??[];values.env=publicNativeEnv(config.env??{});return {model,values,mcp:publicMcpServers(config.mcp_servers??config.mcpServers??{}),restartNeeded:true,capabilities:{dsExperts:ownEngine(config)&&dsExpertsSupported(config)},speedSwitches:speedSwitchRows(config.env??{},{deepseek:ownEngine(config),arch:config.arch??null,backend:config.backend??entry?.backend??snapshot.installed?.engine?.backend??null,gpus:snapshot.hardware?.gpus??[]})};}
  function save(model,{values,mcp}){if([...jobs.values()].some(j=>j.state==='running'))throw new Error('Finish the current operation before saving native settings.');const {path,config,entry}=record(model);if(entry.externalImport)throw new Error('Edit the original run configuration and import it under a new name. Imported configurations are not changed here.');if(busy(requests().filter(r=>instances.get(r.instanceId)?.model===model)))throw new Error('Finish this model’s requests before saving its settings.');const patch=validateNativeSettings(values??{}),next={...config};if(patch.ds_experts!=null&&!dsExpertsSupported(config))throw new Error('The Speed choice needs the newer DeepSeek engine. Update the engine in Settings, then choose it.');for(const field of nativeFields())if(field.supported===false&&patch[field.id]!=null&&JSON.stringify(patch[field.id])!==JSON.stringify(config[field.id]))throw new Error(`${field.label} needs a newer native Strata installation. Update it in Settings → About.`);for(const [key,value] of Object.entries(patch)){if(key==='env')next.env=restoreNativeEnv(value,config.env??{});else if(value===null)delete next[key];else next[key]=value;}if('vram_reserve_mib' in patch){const base=captureUserArgs(next);const mine=setUserFlag(base,'--vram-reserve-mib',patch.vram_reserve_mib);if(mine.length)next[USER_KEY]=mine;else delete next[USER_KEY];next.args=mine.length&&patch.vram_reserve_mib!==null?mergeUserArgs(next.args??[],mine):setUserFlag(next.args??[],'--vram-reserve-mib',null);delete next.ui_reserve_applied;if(Array.isArray(next.args_written))next.args_written=[...next.args];}if(mcp!==undefined){next.mcp_servers=validateMcpServers(mcp,config.mcp_servers??config.mcpServers??{});delete next.mcpServers;}copyFileSync(path,path+'.bak');chmodSync(path+'.bak',0o600);const temp=path+'.ui-tmp';writeFileSync(temp,JSON.stringify(next,null,2)+'\n',{mode:0o600});renameSync(temp,path);return settings(model);}
  function previousEngine(){if(packaged)return !!snapshot.engine?.previous;try{const data=snapshot.installed?.data_dir??snapshot.installed?.data_folder;return [join(preferences.repo,'engine/.previous'),data&&join(data,'engine/.previous')].filter(Boolean).some(existsSync)&&readFileSync(join(preferences.repo,'setup.py'),'utf8').includes('--rollback-engine');}catch{return false;}}
@@ -667,10 +669,29 @@ return {summary:result.summary??'Deleted',removed:result.plan?.gb??null};}
   const picked=resolve(input.trim()),target=dataFolderFromPick(picked);
   return {picked,folder:target.path,wholeDrive:!!target.note,shown:target.note?join(target.path,'Models'):target.path};
  }
+ function externalMoveRisk(old,target){
+  const selected=externalEngine.status();
+  const normalized=p=>{let base=resolve(p),tail=[];while(!existsSync(base)){const next=dirname(base);if(next===base)break;tail.unshift(basename(base));base=next;}let value;try{value=join(realpathSync(base),...tail);}catch{value=resolve(p);}return process.platform==='win32'?value.toLowerCase():value;};
+  const folders=[old,target].flatMap(root=>['models','packs','mtp'].map(part=>normalized(join(root,part))));
+  const overlaps=path=>{const value=normalized(path);return folders.some(folder=>{const rel=relative(folder,value);return rel===''||(!rel.startsWith('..'+sep)&&rel!=='..'&&!isAbsolute(rel));});};
+  if(selected.selected&&selected.path&&overlaps(selected.path))return 'The selected external engine is inside a folder that would be moved. Choose to keep files in place.';
+  let names;try{names=readdirSync(checkedLegacyDirectory(legacyRoot())).filter(n=>/^strata-[a-z0-9_.-]+\.json$/i.test(n));}catch(error){if(error.code==='ENOENT')return null;return 'Imported configurations can reference files in the models folder. Choose to keep them in place when changing folders.';}
+  const pathFlags=new Set(['--pack','--native','--ple-gguf','--expert-profile','--mtp']);
+  for(const name of names){
+   const path=join(legacyRoot(),name);if(!isLegacyPath(path))return 'Imported configurations can reference files in the models folder. Choose to keep them in place when changing folders.';
+   const cfg=readJson(path,null);if(!cfg||!Array.isArray(cfg.args))return 'Imported configurations can reference files in the models folder. Choose to keep them in place when changing folders.';
+   const paths=[cfg.exe,cfg.tokenizer,cfg.log,...(Array.isArray(cfg.lib_dirs)?cfg.lib_dirs:[]),...Object.values(cfg.env??{})];
+   for(let i=0;i<cfg.args.length;i++){const v=cfg.args[i];if(pathFlags.has(v)){const next=cfg.args[++i];if(next&&!/^\d+$/.test(next))paths.push(next);}else if(typeof v==='string'&&!v.startsWith('--')&&(isAbsolute(v)||win32.isAbsolute(v)||/[\\/]/.test(v)))paths.push(v);}
+   for(let value of paths){if(typeof value!=='string'||!value||value.startsWith('component:'))continue;if(!isAbsolute(value)){if(win32.isAbsolute(value)&&process.platform!=='win32')return 'Imported configurations can reference files in the models folder. Choose to keep them in place when changing folders.';if(!/[\\/]/.test(value))continue;if(!isAbsolute(cfg.cwd??''))return 'Imported configurations can reference files in the models folder. Choose to keep them in place when changing folders.';value=resolve(cfg.cwd,value);}if(overlaps(value))return 'Imported configurations can reference files in the models folder. Choose to keep them in place when changing folders.';}
+  }
+  return null;
+ }
  async function planModelsFolder(input){
   if(!packaged)throw new Error('Changing the models folder is part of the Strata app.');
   const now=currentModelsFolder();if(!now)throw new Error('Strata is still reading your models folder. Try again in a moment.');
   const pick=pickedModelsFolder(input),plan=await control.planModelsMove(now,pick.folder);
+  const risk=externalMoveRisk(now,pick.folder);if(risk&&plan.choices?.move)plan.choices.move={...plan.choices.move,possible:false,reason:risk};
+  if((externalEngine.status().selected||hasLegacyRecords())&&(process.env.STRATA_INSTALL_DIR||preferences.installDir)&&plan.choices?.empty)plan.choices.empty={...plan.choices.empty,possible:false,reason:'An external installation may contain your own configurations. Choose to keep them in place.'};
   return {...plan,...pick,current:now,running:instances.size,busy:[...jobs.values()].some(j=>j.state==='running')};
  }
  /* "Start empty": the old models are no longer listed. Their run configs are moved (not deleted) into old-models beside the others; the model files are not touched. */
@@ -687,18 +708,19 @@ return {summary:result.summary??'Deleted',removed:result.plan?.gb??null};}
  }
  async function startModelsFolder({folder:input,choice,stopRunning=false}){
   if(!packaged)throw new Error('Changing the models folder is part of the Strata app.');
-  if(importPending||externalEngine.status().selected||hasLegacyRecords())throw new Error('Stop using the external engine and remove imported configuration records before changing the models folder. Your original files will stay in place.');
+  if(importPending)throw new Error('Wait for the configuration import to finish before changing the models folder.');
   if(!['move','keep','empty'].includes(choice))throw new Error('Choose what to do with your models.');
   if([...jobs.values()].some(j=>j.state==='running'))throw new Error('Finish or stop the download to change the folder.');
   const plan=await planModelsFolder(input);
-  if(importPending||externalEngine.status().selected||hasLegacyRecords())throw new Error('Stop using the external engine and remove imported configuration records before changing the models folder. Your original files will stay in place.');
+  if(importPending)throw new Error('Wait for the configuration import to finish before changing the models folder.');
   if(plan.issue)throw Object.assign(new Error(plan.issue.message),{details:plan.issue.details,code:plan.issue.code});
   if(!plan.choices[choice].possible)throw Object.assign(new Error(plan.choices[choice].reason||'That choice is not possible here.'),{code:'not_possible'});
   if(instances.size){
    if(!stopRunning)throw Object.assign(new Error('A model is running. Stop it first, then change the folder.'),{code:'running'});
    for(const id of [...instances.keys()])await unload(id);
   }
-  if(importPending||externalEngine.status().selected||hasLegacyRecords())throw new Error('Stop using the external engine and remove imported configuration records before changing the models folder. Your original files will stay in place.');
+  if(importPending)throw new Error('Wait for the configuration import to finish before changing the models folder.');
+  if(choice==='move'){const risk=externalMoveRisk(plan.current,plan.folder);if(risk)throw new Error(risk);}
   const old=plan.current,target=plan.folder;
   if(choice!=='move'){
    makeFolder(target);
@@ -739,21 +761,22 @@ return {summary:result.summary??'Deleted',removed:result.plan?.gb??null};}
   try{return await control.interruptedModelsMove(now);}catch{return null;}
  }
  async function finishInterruptedMove({stopRunning=false}={}){
-  if(importPending||externalEngine.status().selected||hasLegacyRecords())throw new Error('Stop using the external engine and remove imported configuration records before resuming the models folder move. Your original files will stay in place.');
+  if(importPending)throw new Error('Wait for the configuration import to finish.');
   const st=await interruptedMove();if(!st)throw new Error('No move was interrupted.');
-  if(importPending||externalEngine.status().selected||hasLegacyRecords())throw new Error('Stop using the external engine and remove imported configuration records before resuming the models folder move. Your original files will stay in place.');
+  {const risk=externalMoveRisk(st.from,st.to);if(risk)throw new Error(risk);}
   if([...jobs.values()].some(j=>j.state==='running'))throw new Error('Finish or stop the download to change the folder.');
   if(instances.size){
    if(!stopRunning)throw Object.assign(new Error('A model is running. Stop it first, then change the folder.'),{code:'running'});
    for(const id of [...instances.keys()])await unload(id);
   }
-  if(importPending||externalEngine.status().selected||hasLegacyRecords())throw new Error('Stop using the external engine and remove imported configuration records before resuming the models folder move. Your original files will stay in place.');
+  if(importPending)throw new Error('Wait for the configuration import to finish.');
+  {const risk=externalMoveRisk(st.from,st.to);if(risk)throw new Error(risk);}
   return runModelsMove(st.from,st.to,(from,to,options)=>control.resumeModelsMove(from,options));
  }
  async function leaveInterruptedMove(){
-  if(importPending||externalEngine.status().selected||hasLegacyRecords())throw new Error('Stop using the external engine and remove imported configuration records before changing the interrupted models folder move. Your original files will stay in place.');
+  if(importPending)throw new Error('Wait for the configuration import to finish.');
   const st=await interruptedMove();if(!st)throw new Error('No move was interrupted.');
-  if(importPending||externalEngine.status().selected||hasLegacyRecords())throw new Error('Stop using the external engine and remove imported configuration records before changing the interrupted models folder move. Your original files will stay in place.');
+  {const risk=externalMoveRisk(st.from,st.to);if(risk)throw new Error(risk);}
   if([...jobs.values()].some(j=>j.state==='running'))throw new Error('Finish or stop the download to change the folder.');
   const result=await control.leaveModelsMove(st.from,{installDir:repo()});
   lastRead=0;await refresh(true);
@@ -764,7 +787,7 @@ return {summary:result.summary??'Deleted',removed:result.plan?.gb??null};}
  // Remove nonserializable process references from public jobs.
  const publicState=()=>{const value=state();value.jobs=value.jobs.map(({process,engineAbort,rawResult,...job})=>job);return value;};
  async function localPreview(path){if(!packaged)throw new Error('Checking local model files is part of the Strata app.');if(typeof path!=='string'||!path.trim()||[...path].some(c=>c.charCodeAt(0)<32))throw new Error('Choose a folder.');return control.importPlan(path.trim());}
- return {state:publicState,protectManagedEngines:()=>importPending||externalEngine.status().selected||hasLegacyRecords(),importLegacy,legacyLoadReview,selectExternalEngine,clearExternalEngine,tuneStatus,tuneEffective,tuneOff,tunePresets:{list:()=>autotuner.list(),action:(kind,id,extra)=>autotuner.action(kind,id,extra),undoFor:async args=>autotuner.undoFor(tuneConfig(args).path)},refresh,localPreview,configure,setDownloadDirectory,planModelsFolder,startModelsFolder,interruptedMove,finishInterruptedMove,leaveInterruptedMove,plan,settings,save,settingsFile,openSettingsFile,operation,dismissRestart,cancel,unload,resolveInstance,poll,logs:()=>logs.slice(),benchmarkReport:()=>readJson(join(directory,'native-benchmark.json'),null),setDefault(id){defaultId=resolveInstance(id).id;emit();return publicState();},hasLive:()=>[...instances.values()].some(i=>i.status==='ready'),readyInstances:()=>[...instances.values()].filter(i=>i.status==='ready'),defaultInstanceId:()=>defaultId,close};
+ return {state:publicState,protectManagedEngines:()=>importPending||externalEngine.status().selected||hasLegacyRecords(),importLegacy,legacyLoadReview,readLegacy,editLegacy,selectExternalEngine,clearExternalEngine,tuneStatus,tuneEffective,tuneOff,tunePresets:{list:()=>autotuner.list(),action:(kind,id,extra)=>autotuner.action(kind,id,extra),undoFor:async args=>autotuner.undoFor(tuneConfig(args).path)},refresh,localPreview,configure,setDownloadDirectory,planModelsFolder,startModelsFolder,interruptedMove,finishInterruptedMove,leaveInterruptedMove,plan,settings,save,settingsFile,openSettingsFile,operation,dismissRestart,cancel,unload,resolveInstance,poll,logs:()=>logs.slice(),benchmarkReport:()=>readJson(join(directory,'native-benchmark.json'),null),setDefault(id){defaultId=resolveInstance(id).id;emit();return publicState();},hasLive:()=>[...instances.values()].some(i=>i.status==='ready'),readyInstances:()=>[...instances.values()].filter(i=>i.status==='ready'),defaultInstanceId:()=>defaultId,close};
 }
 /* A DeepSeek config on AMD written by setup 0.2.8 or earlier names ONE card and marks it "asked", though setup picked it itself (strata_control/gpu_pick.py): it must not stop the app's recommended cards from applying. A card setup named for itself is the first of the usable cards, largest memory first; another card number was the person's. Roles and a "gpus_by" marker are always honoured. */
 export function setupPickedOneCard(config,hardware){

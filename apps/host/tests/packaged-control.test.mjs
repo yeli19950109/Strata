@@ -702,14 +702,12 @@ test('linked import folder is not scanned or written outside the app', async () 
  }finally{await f.native.close();f.cleanup();}
 });
 
-test('external engine or imported records protect engine component changes and model moves', async () => {
+test('external engine or imported records protect managed engine component changes', async () => {
  const f=packagedFixture({ids:[],updater:{report:{},async update(){throw new Error('must not reach updater');}}});
  try {const exe=join(f.root,'external engine');writeFileSync(exe,'unchanged');chmodSync(exe,0o700);await f.native.refresh(true);await f.native.selectExternalEngine(exe);rmSync(exe);
   for(const kind of ['update-engine','rollback','install-engine-file']){const job=await finish(f.native,f.native.operation(kind,{path:join(f.root,'incoming')}).id);assert.equal(job.state,'error');assert.match(job.error,/external engine/);}
-  for(const operation of [()=>f.native.startModelsFolder({folder:join(f.root,'new'),choice:'move'}),()=>f.native.finishInterruptedMove(),()=>f.native.leaveInterruptedMove()])await assert.rejects(operation(),/external engine/);
   await f.native.clearExternalEngine();const root=join(f.data,'legacy-models');mkdirSync(root);writeFileSync(join(root,'strata-import.json'),'{}');
   for(const kind of ['update-engine','rollback','install-engine-file']){const job=await finish(f.native,f.native.operation(kind,{path:join(f.root,'incoming')}).id);assert.equal(job.state,'error');assert.match(job.error,/imported configurations/);}
-  for(const operation of [()=>f.native.startModelsFolder({folder:join(f.root,'new'),choice:'move'}),()=>f.native.finishInterruptedMove(),()=>f.native.leaveInterruptedMove()])await assert.rejects(operation(),/remove imported configuration records/);
   assert.equal(f.calls.some(c=>['update','updateCheck','rollbackEngine','moveModels','resumeModelsMove','leaveModelsMove'].includes(c[0])),false);
  }finally{await f.native.close();f.cleanup();}
 });

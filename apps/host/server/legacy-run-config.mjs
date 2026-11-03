@@ -1,7 +1,7 @@
 /** Validate legacy run configurations without reading or running the files they name. */
 import { isAbsolute, join, dirname, basename } from 'node:path';
-import { closeSync, fsyncSync, linkSync, lstatSync, mkdirSync, openSync, realpathSync, unlinkSync, writeFileSync } from 'node:fs';
-import { randomUUID } from 'node:crypto';
+import { closeSync, fsyncSync, linkSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
 import { checkAndParseRunConfig, describeIssues } from './run-config-check.mjs';
 
 // A drive-relative path (C:foo or \\foo) depends on process state and is not absolute.
@@ -21,6 +21,18 @@ export function checkedLegacyDirectory(directory, { create = false } = {}) {
   const actual = realpathSync(directory), expected = join(realpathSync(dirname(directory)), basename(directory));
   if (process.platform === 'win32' ? actual.toLowerCase() !== expected.toLowerCase() : actual !== expected) throw new Error('The imported configuration folder is not a private directory.');
   return actual;
+}
+
+/** Recognise the publisher's local SC117 shard names without guessing a pack or downloading files. */
+export function identifySc117(config) {
+  const args=Array.isArray(config?.args)?config.args:[];
+  const value=flag=>{const i=args.indexOf(flag);return i>=0?args[i+1]:null;};
+  const first=value('--native'),second=value('--ple-gguf');
+  const name=p=>typeof p==='string'?p.split(/[\\/]/).pop():'';
+  const match=/^Qwen3\.8-Flash-Next-GSQ-RCO-abliterated-(IQ3_XXS|IQ3_S|IQ2_XS|Q2_0)-00001-of-00002\.gguf$/i.exec(name(first));
+  if(!match)return null;
+  const expected=`Qwen3.8-Flash-Next-GSQ-RCO-abliterated-${match[1]}-00002-of-00002.gguf`;
+  return {family:'SC117 Qwen3.8-Flash-Next GSQ-RCO abliterated',quant:match[1].toUpperCase(),shardsMatch:name(second).toLowerCase()===expected.toLowerCase(),pack:value('--pack'),mtp:value('--mtp')};
 }
 
 /** Returns the original text and parsed content for an explicit confirmation step. */
@@ -46,7 +58,7 @@ export function previewLegacyRunConfig(text) {
     if (!value || !(config.args[i - 1] === '--mtp' && /^\d+$/.test(value)) && !usablePath(value, config.cwd)) throw new Error(`"${config.args[i - 1]}" must name an absolute path or a path relative to an absolute cwd.`);
   }
   const issues = checked.issues.map(issue => issue.code === 'args-managed' ? {...issue, message: 'Network flags in args are passed to the engine. They do not configure the app server; check that your engine accepts them.'} : issue);
-  return { text, config, issues, overrides: ['The app server uses localhost, chooses its own port and API key, and disables automatic browser opening.', 'The app adds a model alias and may increase the startup timeout. The engine receives the listed args in order; separate settings that normally rewrite those args are not applied.', 'The server may adjust GPU and HIP environment settings for the selected hardware.'] };
+  return { text, config, issues, knownModel:identifySc117(config), overrides: ['The app server uses localhost, chooses its own port and API key, and disables automatic browser opening.', 'The app adds a model alias and may increase the startup timeout. The engine receives the listed args in order; separate settings that normally rewrite those args are not applied.', 'The server may adjust GPU and HIP environment settings for the selected hardware.'] };
 }
 
 /** Save only a confirmed snapshot, exclusively: never replace an existing model. */
@@ -73,4 +85,22 @@ export function saveLegacyRunConfig(directory, id, text, ops = { openSync, write
     try { ops.unlinkSync(temp); } catch { /* the committed record remains valid; a leftover temp is harmless */ }
   }
   return target;
+}
+
+/** Replace only the app-owned copy, after validating and checking for concurrent edits. */
+export function updateLegacyRunConfig(directory, id, text, expectedHash) {
+  if (typeof id !== 'string' || !ID.test(id)) throw new Error('Choose an imported configuration.');
+  previewLegacyRunConfig(text);
+  if (!/^[a-f0-9]{64}$/i.test(expectedHash ?? '')) throw new Error('Reload the configuration before saving.');
+  const root=checkedLegacyDirectory(directory), target=join(root,`strata-${id}.json`), info=lstatSync(target);
+  if(info.isSymbolicLink()||!info.isFile()||dirname(realpathSync(target))!==root) throw new Error('The imported configuration is not a regular app-owned file.');
+  const digest=()=>createHash('sha256').update(readFileSync(target)).digest('hex');
+  if(digest()!==expectedHash) throw new Error('The configuration changed since it was opened. Reload it before saving.');
+  const temp=join(root,`.legacy-edit-${randomUUID()}.tmp`);let fd;
+  try {
+    fd=openSync(temp,'wx',0o600);writeFileSync(fd,text);fsyncSync(fd);closeSync(fd);fd=undefined;
+    const current=lstatSync(target);
+    if(current.isSymbolicLink()||!current.isFile()||digest()!==expectedHash)throw new Error('The configuration changed since it was opened. Reload it before saving.');
+    renameSync(temp,target);
+  } finally {if(fd!==undefined)try{closeSync(fd);}catch{}try{unlinkSync(temp);}catch{}}
 }

@@ -92,6 +92,38 @@ class ExternalEngineUpdate(TestCase):
         self.assertEqual(user.read_bytes(), b'original model')
         self.assertTrue((Path(result['backup']) / 'engine-component.json').is_file())
 
+    def test_list_and_delete_verified_backup_only_after_explicit_choice(self):
+        result=self.run_update(); backup=Path(result['backup']); state=self.backups.parent
+        # The API stores backups under state/backups; use the fixture root as that state.
+        target=state/'backups';self.backups.rename(target)
+        rows=ext.list_backups(state,self.trusted)
+        self.assertEqual(len(rows),1);self.assertEqual(rows[0]['version'],'0.1.45');self.assertTrue(rows[0]['deletable'])
+        backup=target/backup.name
+        with self.assertRaisesRegex(ext.ExternalUpdateError,'selected engine'):
+            ext.delete_backup(state,backup.name,self.trusted,backup/self.exe.name)
+        (target/'pending.json').write_text('{}')
+        with self.assertRaisesRegex(ext.ExternalUpdateError,'interrupted'):
+            ext.delete_backup(state,backup.name,self.trusted)
+        (target/'pending.json').unlink()
+        with self.assertRaisesRegex(ext.ExternalUpdateError,'Choose'):
+            ext.delete_backup(state,'../outside',self.trusted)
+        custom=backup/'my-model.gguf';custom.write_text('keep')
+        with self.assertRaisesRegex(ext.ExternalUpdateError,'unrecognised'):
+            ext.delete_backup(state,backup.name,self.trusted)
+        self.assertEqual(custom.read_text(),'keep');custom.unlink()
+        ext.delete_backup(state,backup.name,self.trusted);self.assertFalse(backup.exists())
+        self.assertEqual(ext.inspect(self.exe,self.trusted).version,'0.1.46')
+
+    def test_backup_symlink_is_never_followed(self):
+        result=self.run_update(); backup=Path(result['backup']);state=self.backups.parent;target=state/'backups';self.backups.rename(target);backup=target/backup.name
+        outside=state/'outside';outside.write_text('keep');link=backup/'link'
+        try: link.symlink_to(outside)
+        except OSError: self.skipTest('symlink creation is not available')
+        self.assertFalse(ext.list_backups(state,self.trusted)[0]['deletable'])
+        with self.assertRaisesRegex(ext.ExternalUpdateError,'link'):
+            ext.delete_backup(state,backup.name,self.trusted)
+        self.assertEqual(outside.read_text(),'keep')
+
     def test_failure_restores_old_files(self):
         original = ext._write_atomic
         calls = 0
@@ -407,6 +439,22 @@ class ExternalEngineUpdate(TestCase):
              contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(ext.main(), 0)
         self.assertTrue(observed[0].startswith('https://github.com/Niko1221/Strata/'), observed)
+
+    def test_cli_progress_reports_transfer_bytes_separately_from_result(self):
+        import contextlib, io, json, sys
+        state = self.live.parent / 'progress-state'
+        def fake_apply(exe, ctx, old, new, backup):
+            ctx.emit({'event':'progress','phase':'download','done':25,'total':100})
+            ctx.emit({'event':'phase','phase':'verify'})
+            return {'targetVersion':'0.1.46'}
+        with mock.patch.object(sys, 'argv', ['external','--state',str(state),'--exe',str(self.exe),'--apply','--old-sha','a','--new-sha','b','--progress-json']), \
+             mock.patch.object(ext, 'apply', side_effect=fake_apply), \
+             mock.patch.object(ext.updater, 'detect_hardware', return_value={}), \
+             mock.patch.object(ext.signing, 'load_trusted_keys', return_value=self.trusted), \
+             contextlib.redirect_stdout(io.StringIO()) as out, contextlib.redirect_stderr(io.StringIO()) as err:
+            self.assertEqual(ext.main(), 0)
+        self.assertEqual(json.loads(out.getvalue())['targetVersion'],'0.1.46')
+        self.assertEqual(err.getvalue().strip(),'STRATA_PROGRESS {"done": 25, "total": 100}')
 
     def test_private_workspace_refuses_fifo_before_opening_update_lock(self):
         import os

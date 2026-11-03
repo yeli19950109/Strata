@@ -30,7 +30,7 @@ from strata_control.profiles import ProfileError
 
 ROOT = Path(__file__).resolve().parents[1]
 # a dot is allowed inside the name (DeepSeek-V4.1-Flash: "deepseek-v4.1-flash-ist-das-2.00bpw"), never two in a row and never first
-MODEL_ID = re.compile(r"[a-z0-9](?:[a-z0-9_-]|\.(?!\.)){0,127}\Z")
+MODEL_ID = re.compile(r"[a-z0-9](?:[a-z0-9_-]|\.(?!\.)){0,127}\Z", re.IGNORECASE | re.ASCII)
 MAX_CONFIG_BYTES = 1024 * 1024
 MAX_CONFIGS = 128
 MAX_IMPORT_SHARDS = 128
