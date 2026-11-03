@@ -10,5 +10,5 @@ export function EngineWarning({ native }: { native: NativeState | null | undefin
   if (!engineMissing(native)) return null;
   if (native?.externalEngine?.selected) return <div className="engine-warning" role="status"><Icon name="info" size={18}/><div><p>{native.externalEngine.notice}</p></div></div>;
   if (native?.engine?.wrongMake && native.engine.notice) return <div className="engine-warning" role="status"><Icon name="info" size={18}/><div><p>{native.engine.notice}</p></div></div>;
-  return <div className="engine-warning" role="status"><Icon name="info" size={18}/><div><p>{tr("Strata didn’t recognise an engine for this computer. The model will download, but it may not run until the right engine is installed (Settings → Engine).")}</p>{native?.engine?.notice ? <small className="muted">{native.engine.notice}</small> : null}</div></div>;
+  return <div className="engine-warning" role="status"><Icon name="info" size={18}/><div><p>{tr("Strata didn’t recognise an engine for this computer. The model will download, but it may not run until the right engine is installed (Settings → About).")}</p>{native?.engine?.notice ? <small className="muted">{native.engine.notice}</small> : null}</div></div>;
 }

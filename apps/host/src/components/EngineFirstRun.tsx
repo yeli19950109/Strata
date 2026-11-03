@@ -9,6 +9,7 @@ import { megabytes } from '../lib/format';
 import { LegacyRunImport } from './LegacyRunImport';
 import { ExternalEngineChoice } from './ExternalEngineChoice';
 import { completeSetupStep, openSetup, go } from '../lib/store';
+import { FirstRunLanguage } from './FirstRunLanguage';
 
 /** What the host says about this PC's engine (GET /api/engine/first-run). */
 export interface FirstRunInfo {
@@ -90,7 +91,7 @@ export function EngineFirstRun({ onDone }: { onDone: () => void }) {
         setProblem('');
         try {
             started.current = true;
-            setJob(await api.post<NativeJob>('/api/native/operations', { kind: 'update-engine', args: {} }));
+            setJob(await api.post<NativeJob>('/api/native/operations', { kind: 'update-engine', args: { firstRun: true } }));
         }
         catch (e) {
             started.current = false;
@@ -168,9 +169,11 @@ export function EngineFirstRun({ onDone }: { onDone: () => void }) {
             actions = <><Btn variant="primary" disabled={busy} onClick={look}>{tr("Try again")}</Btn>{pick("Choose a downloaded file…")}<button type="button" className="onboard-continue-anyway" onClick={onDone}>{tr("Continue without an engine")}</button></>;
         }
         body = <><div className="onboard-welcome-copy"><h1 tabIndex={-1} data-initial-focus>{tr("Welcome to Strata")}</h1>{main}</div>
-            {failed ? <div className="onboard-error" style={{ maxWidth: 560, margin: '0 auto' }}><p role="alert" className="small inline-error">{job?.error ?? job?.summary}</p><p className="small muted">{tr("The download stopped. Continue picks it up where it stopped.")}</p></div> : null}
+            {failed ? <div className="onboard-error" style={{ maxWidth: 560, margin: '0 auto' }}><p role="alert" className="small inline-error">{job?.error ?? job?.summary}</p>
+                {job?.details ? <details className="error-detail"><summary className="small">{tr('Details')}</summary><pre className="small muted">{job.details}</pre></details> : null}
+                <p className="small muted">{percent >= 100 ? tr("The file was downloaded. Continue tries the install again.") : tr("The download stopped. Continue picks it up where it stopped.")}</p></div> : null}
             {problem ? <div className="onboard-error" style={{ maxWidth: 560, margin: '0 auto' }}><p role="alert" className="small inline-error">{problem}</p></div> : null}
             <footer className="onboard-footer onboard-footer--welcome">{actions}<button type="button" className="onboard-continue-anyway" disabled={busy} onClick={() => setEngineOpen(true)}>{tr('Use an existing engine…')}</button><button type="button" className="onboard-continue-anyway" disabled={busy} onClick={() => setImportOpen(true)}>{tr('Use an existing engine and JSON configuration…')}</button></footer></>;
     }
-    return <div className="setup guided-onboarding" data-step="engine">{hidden}<ExternalEngineChoice open={engineOpen} onClose={() => setEngineOpen(false)} onDone={onDone}/><LegacyRunImport open={importOpen} onClose={() => setImportOpen(false)} onImported={() => { void completeSetupStep(1, undefined, true).then(() => { openSetup(false); go('models'); }).catch(e => setProblem(e instanceof Error ? e.message : String(e))); }}/><header className="onboard-header"><Brand variant="lockup" height={22}/></header>{body}</div>;
+    return <div className="setup guided-onboarding" data-step="engine">{hidden}<ExternalEngineChoice open={engineOpen} onClose={() => setEngineOpen(false)} onDone={onDone}/><LegacyRunImport open={importOpen} onClose={() => setImportOpen(false)} onImported={() => { void completeSetupStep(1, undefined, true).then(() => { openSetup(false); go('models'); }).catch(e => setProblem(e instanceof Error ? e.message : String(e))); }}/><header className="onboard-header"><Brand variant="lockup" height={22}/><FirstRunLanguage/></header>{body}</div>;
 }
