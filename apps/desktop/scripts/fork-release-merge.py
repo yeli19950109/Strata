@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Combine three independently verified platform artifacts; never overwrite a name."""
+"""Stage the verified Windows artifact; never overwrite a name."""
 import argparse
 import json
 import shutil
@@ -27,6 +27,6 @@ for directory in sorted(a.input.glob('fork-release-*')):
         dest = a.output / f.name
         if not f.is_file() or dest.exists(): raise SystemExit('Duplicate or invalid artifact.')
         shutil.copyfile(f, dest)
-if not merged or len(merged['platforms']) != 3:
-    raise SystemExit('All three platform artifacts are required.')
+if not merged or set(merged['platforms']) != {'windows-x86_64'}:
+    raise SystemExit('Exactly the Windows x64 artifact is required.')
 (a.output / 'latest.json').write_text(json.dumps(merged, indent=2)+'\n')

@@ -18,7 +18,7 @@ spec.loader.exec_module(feed_tool)
 
 CONF = ROOT / 'apps/desktop/src-tauri/tauri.conf.json'
 REPO = 'yeli19950109/Strata'
-TARGETS = ('windows-x86_64', 'linux-x86_64', 'darwin-aarch64')
+TARGETS = ('windows-x86_64',)
 
 
 def public_key():
@@ -50,13 +50,12 @@ def overlay(tag, output):
 def collect(tag, target, bundle, output):
     version = version_for(tag)
     key = public_key()
-    patterns = {'windows-x86_64': 'nsis/*-setup.exe', 'linux-x86_64': 'appimage/*.AppImage', 'darwin-aarch64': 'macos/*.app.tar.gz'}
+    patterns = {'windows-x86_64': 'nsis/*-setup.exe'}
     found = list(bundle.glob(patterns[target]))
     if len(found) != 1:
         raise ValueError(f'Expected exactly one {target} updater artifact, found {len(found)}.')
     archive = found[0]
-    # macOS uses the stable <name>.app.tar.gz name; the tag scopes its URL.
-    if target != 'darwin-aarch64' and not re.search(r'(?<!\d)' + re.escape(version) + r'(?!\d)', archive.name):
+    if not re.search(r'(?<!\d)' + re.escape(version) + r'(?!\d)', archive.name):
         raise ValueError(f'{archive.name} does not contain the release version {version}.')
     signature = Path(str(archive) + '.sig')
     if not signature.is_file():
@@ -87,7 +86,7 @@ def main():
             version = version_for(a.tag)
             data = json.loads((a.output / 'latest.json').read_text())
             if data.get('version') != version or set(data.get('platforms', {})) != set(TARGETS):
-                raise ValueError('latest.json must have the release version and all three platforms.')
+                raise ValueError('latest.json must have the release version and only the Windows x64 platform.')
             for target, item in data['platforms'].items():
                 prefix = f'https://github.com/{REPO}/releases/download/{a.tag}/'
                 if not item['url'].startswith(prefix) or '/' in item['url'][len(prefix):]:

@@ -1,28 +1,7 @@
 name: Minimal serving runtime
 
 on:
-  push:
-    paths:
-      - .github/workflows/terminal-minimal-server.yml
-      - requirements.txt
-      - strata.py
-      - strata_cli/**
-      - strata_control/**
-      - serve/**
-      - tests/terminal/test_runtime.py
-      - tools/minimal_server_smoke.py
-      - tools/strata_tokenizer.py
-  pull_request:
-    paths:
-      - .github/workflows/terminal-minimal-server.yml
-      - requirements.txt
-      - strata.py
-      - strata_cli/**
-      - strata_control/**
-      - serve/**
-      - tests/terminal/test_runtime.py
-      - tools/minimal_server_smoke.py
-      - tools/strata_tokenizer.py
+  # The upstream Linux runtime suite is available only by manual dispatch in this Windows-focused fork.
   workflow_dispatch:
 
 permissions:
