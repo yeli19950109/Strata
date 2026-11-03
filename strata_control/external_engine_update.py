@@ -157,6 +157,13 @@ def _digest(path: Path) -> str:
 
 _BACKUP_NAME = re.compile(r'external-engine-backup-[a-z0-9_]{8}\Z')
 
+def _backup_deletion_supported():
+    # Windows lacks the dir-fd operations needed to bind a recursive walk to
+    # already-verified directories. A path-based rmtree can race a reparse
+    # point replacement, so do not attempt it until a handle-based version is
+    # implemented and tested on Windows.
+    return sys.platform != 'win32' and shutil.rmtree.avoids_symlink_attacks
+
 def _backup_info(root: Path, folder: Path, trusted: dict, *, verify_bytes=False):
     """Recognise only signed update backups, rejecting links and unknown contents."""
     if folder.parent != root or not _BACKUP_NAME.fullmatch(folder.name):
@@ -205,12 +212,15 @@ def list_backups(state: Path, trusted: dict):
     result=[]
     for folder in sorted(root.iterdir()):
         if not _BACKUP_NAME.fullmatch(folder.name): continue
-        try: result.append({**_backup_info(root,folder,trusted),'deletable':True})
+        try: result.append({**_backup_info(root,folder,trusted),'deletable':_backup_deletion_supported(),
+                           **({} if _backup_deletion_supported() else {'deleteBlockedReason':'unsafe_platform'})})
         except (OSError,ValueError,ec.ComponentProblem,signing.SignatureError):
             result.append({'id':folder.name,'path':str(folder),'deletable':False})
     return result
 
 def delete_backup(state: Path, backup_id: str, trusted: dict, selected: Path | None = None):
+    if not _backup_deletion_supported():
+        raise ExternalUpdateError('Backup deletion is unavailable on this platform until a race-safe implementation is available. No files were deleted.')
     root=state/'backups';_private_dir(root)
     if not _BACKUP_NAME.fullmatch(backup_id or ''): raise ExternalUpdateError('Choose an app-managed engine backup.')
     if (root/'pending.json').exists() or (root/'pending.json').is_symlink(): raise ExternalUpdateError('Restore the interrupted update before deleting backups.')

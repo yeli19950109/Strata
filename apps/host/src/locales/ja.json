@@ -3615,5 +3615,6 @@
   "extui028": "No external engine update backups.",
   "extui029": "Delete engine backup?",
   "extui030": "Delete backup",
-  "extui031": "Delete this Strata-managed backup? This cannot be undone."
+  "extui031": "Delete this Strata-managed backup? This cannot be undone.",
+  "extui032": "Backup deletion is temporarily unavailable on this platform to protect your files."
 }
