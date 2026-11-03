@@ -10,13 +10,22 @@ import { createServer } from 'node:net';
 const root=resolve(import.meta.dirname,'..');
 async function port() {const s=createServer();await new Promise(r=>s.listen(0,'127.0.0.1',r));const n=s.address().port;await new Promise(r=>s.close(r));return n;}
 const wait=ms=>new Promise(r=>setTimeout(r,ms));
+async function stopHost(child) {
+ if (!child || child.exitCode !== null) return;
+ const exited = new Promise(r => child.once('exit', r));
+ if (process.platform === 'win32') {
+  const result = spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], {windowsHide:true,encoding:'utf8',timeout:15000});
+  if (result.error || result.status !== 0) throw new Error(`Could not stop host process tree: ${result.error?.message || result.stderr}`);
+ } else child.kill('SIGTERM');
+ await exited;
+}
 test('preview, engine choice, offline status and dismissed setup persist without running the engine', {timeout:30000}, async()=>{
  const home=await mkdtemp(join(tmpdir(),'strata-旧配置 ')), engine=join(home,'my engine');
  await writeFile(engine,'not an executable program',{mode:0o755});
  const p=await port(), base=`http://127.0.0.1:${p}`; let child;
  const call=async(path,method='GET',body)=>{const r=await fetch(base+path,{method,headers:body===undefined?undefined:{'content-type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});return {status:r.status,body:await r.json()};};
  async function start(){child=spawn(process.execPath,['server/index.mjs'],{cwd:root,stdio:'ignore',env:{...process.env,STRATA_HOME:home,STRATA_MODELS_DIR:join(home,'models'),STRATA_PORT:String(p),STRATA_REAL_ENGINE:'0',STRATA_NO_ACQUIRE:'1'}});for(let i=0;i<100;i++){try{if((await call('/api/health')).status===200)return;}catch{} await wait(100);}throw new Error('host did not start');}
- async function stop(){if(child && child.exitCode===null){const exited=new Promise(r=>child.once('exit',r));child.kill('SIGTERM');await exited;} child=null;}
+ async function stop(){await stopHost(child);child=null;}
  try {
   await start();
   const source='\ufeff'+JSON.stringify({exe:'Y:\\Strata\\engine\\strata.exe',cwd:'Y:\\Strata',args:['--pack','Y:\\模型 1\\pack'],tokenizer:'Y:\\模型 1\\tokenizer',lib_dirs:['Y:\\Strata\\rocm\\bin'],env:{STRATA_HIP_WMMA:'1'},port:8080});
@@ -34,7 +43,7 @@ test('preview, engine choice, offline status and dismissed setup persist without
   await rm(pending);
   await rm(engine);status=(await call('/api/native/external-engine')).body;assert.equal(status.selected,true);assert.equal(status.usable,false);assert.ok(status.notice);
   const cleared=await call('/api/native/external-engine','DELETE');assert.equal(cleared.status,200);assert.equal(cleared.body.selected,false);
- } finally {await stop();await rm(home,{recursive:true,force:true});}
+ } finally {await stop();await rm(home,{recursive:true,force:true,maxRetries:10,retryDelay:200});}
 });
 
 test('packaged host previews and imports the confirmed snapshot, persists it and dismisses setup', {timeout:30000}, async()=>{
@@ -58,7 +67,7 @@ else if(args.includes('engine'))console.log(JSON.stringify({usable:false,notice:
  const p=await port(), base=`http://127.0.0.1:${p}`;
  const call=async(path,method='GET',body)=>{const r=await fetch(base+path,{method,headers:body===undefined?undefined:{'content-type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});return{status:r.status,body:await r.json()};};
  async function start(){child=spawn(process.execPath,['server/index.mjs'],{cwd:root,stdio:'ignore',env:{...process.env,STRATA_HOME:home,STRATA_MODELS_DIR:join(home,'models'),STRATA_INSTALL_DIR:install,STRATA_CONTROL_DIR:dir,STRATA_COMPONENTS_DIR:join(home,'components'),STRATA_PORT:String(p),STRATA_REAL_ENGINE:'0',STRATA_PACKAGED:'1',STRATA_NO_ACQUIRE:'1',STRATA_NO_BUNDLED_ENGINE:'1'}});for(let i=0;i<100;i++){try{if((await call('/api/health')).status===200)return;}catch{}await wait(100);}throw new Error('host did not start');}
- async function stop(){if(child&&child.exitCode===null){const exited=new Promise(r=>child.once('exit',r));child.kill('SIGTERM');await exited;}child=null;}
+ async function stop(){await stopHost(child);child=null;}
  try {
   await start();const cfg={exe:'Y:\\Strata\\engine\\strata.exe',cwd:'Y:\\Strata',args:['--pack','Y:\\模型\\pack'],tokenizer:'Y:\\模型\\tokenizer',model_name:'Existing',env:{STRATA_HIP_WMMA:'1'},port:8080,before_load:['echo','inspect only']};const text='\ufeff'+JSON.stringify(cfg);
   const preview=await call('/api/native/legacy/preview','POST',{text});assert.equal(preview.status,200);assert.deepEqual(preview.body.config,cfg);
@@ -69,5 +78,5 @@ else if(args.includes('engine'))console.log(JSON.stringify({usable:false,notice:
   await call('/api/setup/step','POST',{step:1,flowVersion:2,dismissed:true});await stop();await start();
   assert.equal((await call('/api/setup')).body.dismissed,true);const status=await call('/api/native?refresh=1');assert.equal(status.body.installed.models.find(m=>m.model==='mine').externalImport,true);
   const saved=await (await import('node:fs/promises')).readFile(join(home,'data','legacy-models','strata-mine.json'),'utf8');assert.equal(saved,text);
- } finally {await stop();await rm(home,{recursive:true,force:true});}
+ } finally {await stop();await rm(home,{recursive:true,force:true,maxRetries:10,retryDelay:200});}
 });
