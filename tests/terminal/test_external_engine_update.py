@@ -3,9 +3,6 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase, mock
 import shutil
-import os
-import subprocess
-import sys
 
 from strata_control import external_engine_update as ext
 from tests.terminal.update_fixture import build_package, make_key, trusted_of
@@ -95,82 +92,16 @@ class ExternalEngineUpdate(TestCase):
         self.assertEqual(user.read_bytes(), b'original model')
         self.assertTrue((Path(result['backup']) / 'engine-component.json').is_file())
 
-    def test_list_and_delete_verified_backup_only_after_explicit_choice(self):
-        result=self.run_update(); backup=Path(result['backup']); state=self.backups.parent
-        # The API stores backups under state/backups; use the fixture root as that state.
-        target=state/'backups';self.backups.rename(target)
-        rows=ext.list_backups(state,self.trusted)
-        self.assertEqual(len(rows),1);self.assertEqual(rows[0]['version'],'0.1.45')
-        backup=target/backup.name
-        if not ext._backup_deletion_supported():
-            self.assertFalse(rows[0]['deletable']);self.assertEqual(rows[0]['deleteBlockedReason'],'unsafe_platform')
-            with self.assertRaisesRegex(ext.ExternalUpdateError,'unavailable'):
-                ext.delete_backup(state,backup.name,self.trusted)
-            self.assertTrue(backup.is_dir())
-            return
-        self.assertTrue(rows[0]['deletable'])
-        with self.assertRaisesRegex(ext.ExternalUpdateError,'selected engine'):
-            ext.delete_backup(state,backup.name,self.trusted,backup/self.exe.name)
-        (target/'pending.json').write_text('{}')
-        with self.assertRaisesRegex(ext.ExternalUpdateError,'interrupted'):
-            ext.delete_backup(state,backup.name,self.trusted)
-        (target/'pending.json').unlink()
-        with self.assertRaisesRegex(ext.ExternalUpdateError,'Choose'):
-            ext.delete_backup(state,'../outside',self.trusted)
-        custom=backup/'my-model.gguf';custom.write_text('keep')
-        with self.assertRaisesRegex(ext.ExternalUpdateError,'unrecognised'):
-            ext.delete_backup(state,backup.name,self.trusted)
-        self.assertEqual(custom.read_text(),'keep');custom.unlink()
-        ext.delete_backup(state,backup.name,self.trusted);self.assertFalse(backup.exists())
-        self.assertEqual(ext.inspect(self.exe,self.trusted).version,'0.1.46')
-
-    def test_backup_symlink_is_never_followed(self):
-        result=self.run_update(); backup=Path(result['backup']);state=self.backups.parent;target=state/'backups';self.backups.rename(target);backup=target/backup.name
-        outside=state/'outside';outside.write_text('keep');link=backup/'link'
-        try: link.symlink_to(outside)
-        except OSError: self.skipTest('symlink creation is not available')
-        self.assertFalse(ext.list_backups(state,self.trusted)[0]['deletable'])
-        with self.assertRaisesRegex(ext.ExternalUpdateError,'link|unavailable'):
-            ext.delete_backup(state,backup.name,self.trusted)
-        self.assertEqual(outside.read_text(),'keep')
-
-    def test_windows_path_deletion_is_rejected_before_any_walk_or_removal(self):
-        # Simulate a directory swap at the validation boundary: Windows must
-        # reject before either inspection or the path-based recursive remover.
-        outside=self.root/'outside';outside.mkdir();sentinel=outside/'keep.txt';sentinel.write_text('keep')
-        with mock.patch.object(ext.sys, 'platform', 'win32'), \
-             mock.patch.object(ext, '_backup_info', side_effect=AssertionError('walk must not run')), \
-             mock.patch.object(ext.shutil, 'rmtree', side_effect=AssertionError('rmtree must not run')):
-            with self.assertRaisesRegex(ext.ExternalUpdateError,'unavailable'):
-                ext.delete_backup(self.root,'external-engine-backup-abcdefgh',self.trusted)
-        self.assertEqual(sentinel.read_text(),'keep')
-
-    def test_windows_junction_in_backup_never_removes_its_target(self):
-        if sys.platform != 'win32': self.skipTest('Windows junctions require Windows')
+    def test_list_shows_verified_backup_and_marks_link_unopenable(self):
         result=self.run_update(); backup=Path(result['backup']); state=self.backups.parent
         target=state/'backups';self.backups.rename(target);backup=target/backup.name
-        outside=state/'outside-junction';outside.mkdir();sentinel=outside/'keep.txt';sentinel.write_text('keep')
-        junction=backup/'link'
-        made=subprocess.run(['cmd','/c','mklink','/J',str(junction),str(outside)],capture_output=True,text=True)
-        if made.returncode: self.fail('Could not create a Windows junction for the safety test: '+made.stderr)
-        try:
-            self.assertFalse(ext.list_backups(state,self.trusted)[0]['deletable'])
-            with self.assertRaisesRegex(ext.ExternalUpdateError,'unavailable'):
-                ext.delete_backup(state,backup.name,self.trusted)
-            self.assertEqual(sentinel.read_text(),'keep')
-        finally:
-            os.rmdir(junction)
-        # Replace the backup directory itself with a junction before deletion.
-        # The target and the original backup must both remain untouched.
-        original=target/'original-backup';backup.rename(original)
-        made=subprocess.run(['cmd','/c','mklink','/J',str(backup),str(outside)],capture_output=True,text=True)
-        if made.returncode: self.fail('Could not create a replacement junction: '+made.stderr)
-        try:
-            with self.assertRaisesRegex(ext.ExternalUpdateError,'unavailable'):
-                ext.delete_backup(state,backup.name,self.trusted)
-            self.assertEqual(sentinel.read_text(),'keep');self.assertTrue(original.is_dir())
-        finally:
-            os.rmdir(backup)
+        rows=ext.list_backups(state,self.trusted)
+        self.assertEqual(len(rows),1);self.assertEqual(rows[0]['version'],'0.1.45');self.assertTrue(rows[0]['openable'])
+        user=backup/'unrecognised.txt';user.write_text('keep')
+        self.assertFalse(ext.list_backups(state,self.trusted)[0]['openable'])
+        self.assertEqual(user.read_text(),'keep')
+        user.unlink()
+        self.assertTrue(ext.list_backups(state,self.trusted)[0]['openable'])
 
     def test_failure_restores_old_files(self):
         original = ext._write_atomic

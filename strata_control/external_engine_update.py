@@ -157,14 +157,7 @@ def _digest(path: Path) -> str:
 
 _BACKUP_NAME = re.compile(r'external-engine-backup-[a-z0-9_]{8}\Z')
 
-def _backup_deletion_supported():
-    # Windows lacks the dir-fd operations needed to bind a recursive walk to
-    # already-verified directories. A path-based rmtree can race a reparse
-    # point replacement, so do not attempt it until a handle-based version is
-    # implemented and tested on Windows.
-    return sys.platform != 'win32' and shutil.rmtree.avoids_symlink_attacks
-
-def _backup_info(root: Path, folder: Path, trusted: dict, *, verify_bytes=False):
+def _backup_info(root: Path, folder: Path, trusted: dict):
     """Recognise only signed update backups, rejecting links and unknown contents."""
     if folder.parent != root or not _BACKUP_NAME.fullmatch(folder.name):
         raise ExternalUpdateError('This is not an app-managed engine backup.')
@@ -193,13 +186,13 @@ def _backup_info(root: Path, folder: Path, trusted: dict, *, verify_bytes=False)
         for name in children + files:
             item=Path(parent)/name; rel=item.relative_to(folder).as_posix(); st=item.lstat()
             if item.is_symlink() or getattr(st,'st_file_attributes',0)&0x400:
-                raise ExternalUpdateError('The backup contains a link and cannot be deleted here.')
+                raise ExternalUpdateError('The backup contains a link and cannot be opened here.')
             if stat.S_ISDIR(st.st_mode):
                 if rel not in dirs: raise ExternalUpdateError('The backup contains an unrecognised folder.')
             elif stat.S_ISREG(st.st_mode) and st.st_nlink == 1:
                 if rel not in allowed: raise ExternalUpdateError('The backup contains an unrecognised file.')
                 spec=allowed[rel]
-                if spec and (st.st_size != spec[1] or (verify_bytes and _digest(item) != spec[0])):
+                if spec and (st.st_size != spec[1] ):
                     raise ExternalUpdateError('The backup contains a modified file.')
                 total+=st.st_size
             else: raise ExternalUpdateError('The backup contains a shared or unusual file.')
@@ -212,29 +205,10 @@ def list_backups(state: Path, trusted: dict):
     result=[]
     for folder in sorted(root.iterdir()):
         if not _BACKUP_NAME.fullmatch(folder.name): continue
-        try: result.append({**_backup_info(root,folder,trusted),'deletable':_backup_deletion_supported(),
-                           **({} if _backup_deletion_supported() else {'deleteBlockedReason':'unsafe_platform'})})
+        try: result.append({**_backup_info(root,folder,trusted),'openable':True})
         except (OSError,ValueError,ec.ComponentProblem,signing.SignatureError):
-            result.append({'id':folder.name,'path':str(folder),'deletable':False})
+            result.append({'id':folder.name,'path':str(folder),'openable':False})
     return result
-
-def delete_backup(state: Path, backup_id: str, trusted: dict, selected: Path | None = None):
-    if not _backup_deletion_supported():
-        raise ExternalUpdateError('Backup deletion is unavailable on this platform until a race-safe implementation is available. No files were deleted.')
-    root=state/'backups';_private_dir(root)
-    if not _BACKUP_NAME.fullmatch(backup_id or ''): raise ExternalUpdateError('Choose an app-managed engine backup.')
-    if (root/'pending.json').exists() or (root/'pending.json').is_symlink(): raise ExternalUpdateError('Restore the interrupted update before deleting backups.')
-    folder=root/backup_id
-    if selected:
-        try: selected.resolve().relative_to(folder.resolve())
-        except ValueError: pass
-        else: raise ExternalUpdateError('This backup contains the selected engine and cannot be deleted.')
-    info=_backup_info(root,folder,trusted,verify_bytes=True)
-    # Refuse links/unowned files above; remove only the exact verified backup.
-    shutil.rmtree(folder)
-    _sync_dir(root)
-    return info
-
 
 def _copy_backup(source: Path, dest: Path) -> None:
     # Windows cannot fsync a read-only descriptor. Flush the writable copy
@@ -557,17 +531,12 @@ def main():
     p.add_argument('--new-sha')
     p.add_argument('--progress-json', action='store_true')
     p.add_argument('--list-backups', action='store_true')
-    p.add_argument('--delete-backup')
     a = p.parse_args()
     try:
         state = Path(a.state)
         _private_dir(state, create=True)
         if a.list_backups:
             print(json.dumps({'ok':True,'backups':list_backups(state,signing.load_trusted_keys())},ensure_ascii=False))
-            return 0
-        if a.delete_backup:
-            result=delete_backup(state,a.delete_backup,signing.load_trusted_keys(),Path(a.exe) if a.exe else None)
-            print(json.dumps({'ok':True,'deleted':result},ensure_ascii=False))
             return 0
         if a.status:
             pending = state / 'backups' / 'pending.json'

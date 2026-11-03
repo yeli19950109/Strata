@@ -1,9 +1,30 @@
 /** Explicit, serialized access to the signed external-engine update transaction. */
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { join, isAbsolute } from 'node:path';
-import { lstatSync, readFileSync } from 'node:fs';
+import { join, isAbsolute, resolve } from 'node:path';
+import { lstatSync, readFileSync, realpathSync } from 'node:fs';
 import { controlEnvironment } from './control-runtime.mjs';
+import { externalEnvironment } from './external-env.mjs';
+import { exec } from './util.mjs';
+
+export async function openBackupFolder(directory, id, backups, {platform=process.platform, launch=exec}={}) {
+  if(typeof id!=='string'||!/^external-engine-backup-[a-z0-9_]{8}$/.test(id))throw new Error('Choose an app-managed engine backup.');
+  const record=backups.find(item=>item.id===id && item.openable===true);
+  if(!record)throw new Error('This backup is unavailable or cannot be verified. Refresh the list.');
+  const state=resolve(directory,'external-engine-updates'), root=join(state,'backups'), folder=join(root,id);
+  const same=(a,b)=>platform==='win32'?a.toLowerCase()===b.toLowerCase():a===b;
+  try {
+    for(const path of [state,root,folder]) {
+      const st=lstatSync(path);
+      if(st.isSymbolicLink()||!st.isDirectory()||!same(realpathSync(path),path))throw new Error('linked directory');
+    }
+    if(!same(resolve(record.path),folder))throw new Error('incorrect backup path');
+  } catch {throw new Error('The backup folder is unavailable or contains a link. Refresh the list.');}
+  const cmd=platform==='win32'?`${process.env.SystemRoot||'C:\\Windows'}\\explorer.exe`:platform==='darwin'?'open':'xdg-open';
+  try {await launch(cmd,[folder],{env:externalEnvironment()});}
+  catch {throw new Error('The backup folder could not be opened. Check desktop access and permissions.');}
+  return {ok:true};
+}
 
 export function runModule(control, args, { spawnProcess = spawn, timeoutMs = 3 * 3600_000, onProgress = () => {} } = {}) {
   return new Promise((resolve, reject) => {
@@ -55,13 +76,7 @@ export function createExternalEngineUpdate({ control, directory, selected, exclu
       if(!Array.isArray(result.backups))throw new Error('The engine backups could not be read.');
       return result.backups;
     },
-    async deleteBackup(id) { return exclusive(async()=>{
-      if(typeof id!=='string'||!/^external-engine-backup-[a-z0-9_]{8}$/.test(id))throw new Error('Choose an app-managed engine backup.');
-      if(pending())throw new Error('Restore the interrupted update before deleting backups.');
-      if(!control?.control)throw new Error('The bundled Strata Control is not available.');
-      const path=selected()?.path;
-      return run(control.control,['--state',join(directory,'external-engine-updates'),...(path?['--exe',path]:[]),'--delete-backup',id]);
-    }); },
+    async openBackup(id) {return openBackupFolder(directory,id,await this.backups());},
     async check() { return exclusive(async () => {
       preview = null;
       const path = getPath(), result = await invoke(path);

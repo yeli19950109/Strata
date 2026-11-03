@@ -3609,12 +3609,7 @@
   "extui022": "The external engine update failed.",
   "extui023": "External engine update backups",
   "extui024": "Only backups in Strata’s own update storage are shown.",
-  "extui025": "Restore the interrupted update before deleting backups.",
-  "extui026": "Delete backup…",
-  "extui027": "This backup cannot be verified and cannot be deleted here.",
   "extui028": "No external engine update backups.",
-  "extui029": "Delete engine backup?",
-  "extui030": "Delete backup",
-  "extui031": "Delete this Strata-managed backup? This cannot be undone.",
-  "extui032": "Backup deletion is temporarily unavailable on this platform to protect your files."
+  "extui033": "Open backup folder",
+  "extui034": "This backup cannot be verified and cannot be opened here."
 }

@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, unlinkSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, unlinkSync, symlinkSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { EventEmitter } from 'node:events';
-import { createExternalEngineUpdate, runModule } from '../server/external-engine-update-api.mjs';
+import { createExternalEngineUpdate, runModule, openBackupFolder } from '../server/external-engine-update-api.mjs';
 const hash = c=>c.repeat(64);
 function fixture(){
  const directory=mkdtempSync(join(tmpdir(),'strata external 更新 '));let path=join(directory,'own engine'),busy=false;const calls=[];
@@ -34,11 +34,16 @@ test('reads split download progress from Control stderr without mixing it into t
  const spawnProcess=()=>{const child=new EventEmitter();child.stdout=new EventEmitter();child.stderr=new EventEmitter();child.kill=()=>{};queueMicrotask(()=>{child.stderr.emit('data',Buffer.from('STRATA_PRO'));child.stderr.emit('data',Buffer.from('GRESS {"done":25,"total":100}\n'));child.stdout.emit('data',Buffer.from('{"ok":true}'));child.emit('close',0);});return child;};
  assert.deepEqual(await runModule({python:'python',dir:'.'},[],{spawnProcess,onProgress:e=>events.push(e)}),{ok:true});assert.deepEqual(events,[{done:25,total:100}]);
 });
-test('backup removal accepts only app backup IDs, requires an exclusive gate and refuses pending recovery',async()=>{
- const dir=mkdtempSync(join(tmpdir(),'strata backups '));let calls=[],gated=0;
- try{const service=createExternalEngineUpdate({control:{control:{}},directory:dir,selected:()=>({selected:true,path:join(dir,'external-engine')}),exclusive:async fn=>{gated++;return fn();},run:async(_c,args)=>{calls.push(args);return args.includes('--list-backups')?{ok:true,backups:[{id:'external-engine-backup-abcdefgh'}]}:{ok:true};}});
-  assert.equal((await service.backups()).length,1);await assert.rejects(service.deleteBackup('../outside'),/app-managed/);assert.equal(calls.length,1);
-  const root=join(dir,'external-engine-updates','backups');mkdirSync(root,{recursive:true});writeFileSync(join(root,'pending.json'),'{}');await assert.rejects(service.deleteBackup('external-engine-backup-abcdefgh'),/interrupted/);assert.equal(calls.length,1);
-  unlinkSync(join(root,'pending.json'));await service.deleteBackup('external-engine-backup-abcdefgh');assert.equal(calls.at(-1).at(-1),'external-engine-backup-abcdefgh');assert.equal(gated,3);
+test('opening backup folders requires a verified ID within the app root and never uses a shell',async()=>{
+ const dir=realpathSync(mkdtempSync(join(tmpdir(),'strata backups '))),id='external-engine-backup-abcdefgh';
+ try {const root=join(dir,'external-engine-updates','backups'),folder=join(root,id);mkdirSync(folder,{recursive:true});const records=[{id,path:folder,openable:true}];let calls=[];const launch=async(...args)=>{calls.push(args);};
+  await openBackupFolder(dir,id,records,{platform:'win32',launch});assert.match(calls[0][0],/\\explorer\.exe$/i);assert.deepEqual(calls[0][1],[folder]);
+  await assert.rejects(openBackupFolder(dir,'../outside',records,{launch}),/app-managed/);
+  await assert.rejects(openBackupFolder(dir,id,[{id,path:folder,openable:false}],{launch}),/unavailable/);
+  await assert.rejects(openBackupFolder(dir,id,[{id,path:dir,openable:true}],{launch}),/link/);
+  await assert.rejects(openBackupFolder(dir,id,records,{launch:async()=>{throw Error('denied')}}),/permissions/);
+  rmSync(folder,{recursive:true});await assert.rejects(openBackupFolder(dir,id,records,{launch}),/unavailable/);
+  symlinkSync(dir,folder,process.platform==='win32'?'junction':'dir');await assert.rejects(openBackupFolder(dir,id,records,{launch}),/link/);
+  assert.equal(calls.length,1);
  }finally{rmSync(dir,{recursive:true,force:true});}
 });

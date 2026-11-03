@@ -985,7 +985,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (path.startsWith('/api/')) {
       const modelOperation = !['GET', 'OPTIONS'].includes(method) && /^\/api\/(models|local-models|runtime|image-models|engine|native)(\/|$)/.test(path) && !['/api/runtime/plan', '/api/engine/validate', '/api/local-models/inspect'].includes(path);
-      if(modelOperation && externalEngineUpdate.pending() && !['/api/native/external-engine/update/recover','/api/native/legacy/preview'].includes(path))return error(res,409,'Restore the interrupted external engine update before loading or changing models.');
+      if(modelOperation && externalEngineUpdate.pending() && !['/api/native/external-engine/update/recover','/api/native/legacy/preview','/api/native/external-engine/backups/open'].includes(path))return error(res,409,'Restore the interrupted external engine update before loading or changing models.');
       if (modelOperation) modelOperations++;
       try { return await api(req, res, path, method, url); }
       finally { if (modelOperation) modelOperations--; }
@@ -1014,7 +1014,7 @@ async function api(req, res, path, method, url) {
   if(path==='/api/native/external-engine/choose'&&method==='POST')return json(res,200,await chooseEngineFile());
   if(path==='/api/native/external-engine/update/status'&&method==='GET')return json(res,200,{pendingRecovery:externalEngineUpdate.pending(),...externalEngineUpdate.status()});
   if(path==='/api/native/external-engine/backups'&&method==='GET')return json(res,200,{backups:await externalEngineUpdate.backups(),pendingRecovery:externalEngineUpdate.pending()});
-  if(path==='/api/native/external-engine/backups/delete'&&method==='POST'){const {id}=await readBody(req);return json(res,200,await externalEngineUpdate.deleteBackup(id));}
+  if(path==='/api/native/external-engine/backups/open'&&method==='POST'){const {id}=await readBody(req);return json(res,200,await externalEngineUpdate.openBackup(id));}
   if(path==='/api/native/external-engine'&&method==='POST'){if(externalEngineUpdate.pending())throw new Error('Restore the interrupted external engine update before changing the engine.');const {path:enginePath}=await readBody(req);return json(res,200,await native.selectExternalEngine(enginePath));}
   if(path==='/api/native/external-engine'&&method==='DELETE'){if(externalEngineUpdate.pending())throw new Error('Restore the interrupted external engine update before changing the engine.');return json(res,200,await native.clearExternalEngine());}
   if(path==='/api/native/external-engine/update/check'&&method==='POST')return json(res,200,await externalEngineUpdate.check());

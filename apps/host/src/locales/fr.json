@@ -3609,12 +3609,7 @@
   "extui022": "La mise à jour du moteur externe a échoué.",
   "extui023": "Sauvegardes du moteur externe",
   "extui024": "Seules les sauvegardes du dossier de mise à jour Strata sont affichées.",
-  "extui025": "Restaurez la mise à jour interrompue avant de supprimer les sauvegardes.",
-  "extui026": "Supprimer la sauvegarde…",
-  "extui027": "Cette sauvegarde ne peut pas être vérifiée ni supprimée ici.",
   "extui028": "Aucune sauvegarde du moteur externe.",
-  "extui029": "Supprimer la sauvegarde du moteur ?",
-  "extui030": "Supprimer la sauvegarde",
-  "extui031": "Supprimer cette sauvegarde gérée par Strata ? Cette action est irréversible.",
-  "extui032": "Pour protéger vos fichiers, la suppression des sauvegardes est temporairement indisponible sur cette plateforme."
+  "extui033": "Ouvrir le dossier de sauvegarde",
+  "extui034": "Cette sauvegarde ne peut pas être vérifiée et ne peut pas être ouverte ici."
 }
