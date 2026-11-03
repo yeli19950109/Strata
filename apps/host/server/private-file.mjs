@@ -18,9 +18,18 @@ export function currentUserSid() {
 
 export function makePrivate(path, { platform = process.platform } = {}) {
   if (platform !== 'win32') { chmodSync(path, 0o600); return; }
-  // Grant first, then drop every inherited entry, so the file is never left without an owner entry.
-  execFileSync(system32('icacls.exe'), [path, '/grant:r', `*${currentUserSid()}:F`, '/inheritance:r'],
-    { stdio: 'ignore', timeout: 15000, windowsHide: true });
+  // Replace the complete DACL in one operation. icacls /grant:r replaces only
+  // this user's ACE and can leave other explicit entries on a new file.
+  const script = [
+    "$acl = [System.Security.AccessControl.FileSecurity]::new()",
+    "$acl.SetAccessRuleProtection($true, $false)",
+    "$sid = [System.Security.Principal.SecurityIdentifier]::new($env:STRATA_PRIVATE_FILE_SID)",
+    "$rule = [System.Security.AccessControl.FileSystemAccessRule]::new($sid, [System.Security.AccessControl.FileSystemRights]::FullControl, [System.Security.AccessControl.AccessControlType]::Allow)",
+    "$acl.SetAccessRule($rule)",
+    "[IO.File]::SetAccessControl($env:STRATA_PRIVATE_FILE_PATH, $acl)",
+  ].join('; ');
+  execFileSync(system32('WindowsPowerShell\\v1.0\\powershell.exe'), ['-NoProfile', '-NonInteractive', '-Command', `$ErrorActionPreference = 'Stop'; ${script}`],
+    { stdio: 'ignore', timeout: 15000, windowsHide: true, env: { ...process.env, STRATA_PRIVATE_FILE_PATH: path, STRATA_PRIVATE_FILE_SID: currentUserSid() } });
   // The owner too, so a file an elevated run made is not left owned by Administrators (needs the right to; best effort).
   try { execFileSync(system32('icacls.exe'), [path, '/setowner', `*${currentUserSid()}`], { stdio: 'ignore', timeout: 15000, windowsHide: true }); } catch { /* the explicit entry above already opens it to the user */ }
 }

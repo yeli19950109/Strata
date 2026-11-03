@@ -10,8 +10,8 @@ export function assertPrivate(path) {
   // Avoid PowerShell module auto-loading: hosted runners may inherit a
   // PSModulePath from a different PowerShell version. This reads the same
   // security descriptor directly using the Windows .NET API.
-  const sddl = execFileSync(join(process.env.SystemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'), ['-NoProfile', '-NonInteractive', '-Command', `[IO.File]::GetAccessControl('${path.replace(/'/g, "''")}').GetSecurityDescriptorSddlForm([Security.AccessControl.AccessControlSections]::All)`],
-    { encoding: 'utf8', timeout: 30000, windowsHide: true }).trim();
-  const dacl = sddl.slice(sddl.indexOf('D:'));
-  assert.equal(dacl, `D:PAI(A;;FA;;;${currentUserSid()})`, `ACL is not owner-only: ${sddl}`);
+  const script = `$ErrorActionPreference='Stop'; $acl=[IO.File]::GetAccessControl($env:STRATA_TEST_ACL_PATH); $rules=@($acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])); if (!$acl.AreAccessRulesProtected -or $rules.Count -ne 1 -or $rules[0].IdentityReference.Value -ne $env:STRATA_TEST_ACL_SID -or $rules[0].IsInherited -or $rules[0].AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow -or $rules[0].FileSystemRights -ne [Security.AccessControl.FileSystemRights]::FullControl) { throw 'ACL is not owner-only' }; 'ok'`;
+  const result = execFileSync(join(process.env.SystemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'), ['-NoProfile', '-NonInteractive', '-Command', script],
+    { encoding: 'utf8', timeout: 30000, windowsHide: true, env: { ...process.env, STRATA_TEST_ACL_PATH: path, STRATA_TEST_ACL_SID: currentUserSid() } }).trim();
+  assert.equal(result, 'ok');
 }
