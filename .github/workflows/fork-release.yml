@@ -10,20 +10,7 @@ permissions:
 jobs:
   build:
     if: github.repository == 'yeli19950109/Strata' && github.ref_type == 'tag'
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-22.04
-            target: linux-x86_64
-            bundle: appimage
-          - os: windows-latest
-            target: windows-x86_64
-            bundle: nsis
-          - os: macos-14
-            target: darwin-aarch64
-            bundle: app
-    runs-on: ${{ matrix.os }}
+    runs-on: windows-latest
     timeout-minutes: 90
     env:
       FORK_TAURI_PUBLIC_KEY: ${{ vars.FORK_TAURI_PUBLIC_KEY }}
@@ -46,24 +33,23 @@ jobs:
         run: |
           test -n "$TAURI_SIGNING_PRIVATE_KEY" || { echo 'Missing TAURI_SIGNING_PRIVATE_KEY secret'; exit 1; }
           python apps/desktop/scripts/fork-release.py overlay --tag "$RELEASE_TAG" --output "$RUNNER_TEMP/fork-tauri.json"
-      - name: Linux desktop libraries
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev patchelf
       - name: Install UI and Tauri dependencies
         shell: bash
         run: |
           npm ci --prefix apps/host --no-audit --no-fund
           npm ci --prefix apps/desktop --no-audit --no-fund
+      - name: Find browser for UI test
+        shell: pwsh
+        run: |
+          $browser = @("${env:ProgramFiles}\Google\Chrome\Application\chrome.exe", "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $browser) { throw 'Chrome or Edge is required for the browser test' }
+          "STRATA_TEST_CHROME=$browser" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: Run full client tests and typecheck
         working-directory: apps/host
         run: npm test && npm run typecheck
       - name: Check release and external engine safety
         run: python -m unittest tests.terminal.test_fork_release tests.terminal.test_external_engine_update -q
-      - name: Stage verified Node runtime (Unix)
-        if: runner.os != 'Windows'
-        run: bash apps/desktop/scripts/fetch-node.sh && bash apps/desktop/scripts/fetch-node.sh --check
       - name: Stage verified Node runtime (Windows)
-        if: runner.os == 'Windows'
         shell: pwsh
         run: |
           ./apps/desktop/scripts/fetch-node.ps1
@@ -86,21 +72,21 @@ jobs:
         working-directory: apps/desktop
         shell: bash
         run: |
-          npx tauri build --config "$RUNNER_TEMP/fork-tauri.json" --bundles '${{ matrix.bundle }}'
+          npx tauri build --config "$RUNNER_TEMP/fork-tauri.json" --bundles 'nsis'
       - name: Verify signature and stage platform metadata
         shell: bash
         run: |
-          python apps/desktop/scripts/fork-release.py collect --tag "$RELEASE_TAG" --target '${{ matrix.target }}' --bundle apps/desktop/src-tauri/target/release/bundle --output "$RUNNER_TEMP/release"
+          python apps/desktop/scripts/fork-release.py collect --tag "$RELEASE_TAG" --target 'windows-x86_64' --bundle apps/desktop/src-tauri/target/release/bundle --output "$RUNNER_TEMP/release"
       - uses: actions/upload-artifact@v4
         with:
-          name: fork-release-${{ matrix.target }}
+          name: fork-release-windows-x86_64
           path: ${{ runner.temp }}/release/
           if-no-files-found: error
           retention-days: 7
 
   draft:
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     environment: fork-release
     permissions:
       contents: write
@@ -121,7 +107,8 @@ jobs:
           path: staged
       - name: Combine and reverify every updater artifact
         run: |
-          python apps/desktop/scripts/fork-release-merge.py --tag "$RELEASE_TAG" --input staged --output release
-          python apps/desktop/scripts/fork-release.py verify --tag "$RELEASE_TAG" --output release
+          python apps/desktop/scripts/fork-release-merge.py --tag "$env:RELEASE_TAG" --input staged --output release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python apps/desktop/scripts/fork-release.py verify --tag "$env:RELEASE_TAG" --output release
       - name: Create draft release
-        run: gh release create "$RELEASE_TAG" --verify-tag --draft --title "$RELEASE_TAG" --notes 'Draft fork release. Verify OS signing and notarization before publishing.' release/*
+        run: gh release create "$env:RELEASE_TAG" --verify-tag --draft --title "$env:RELEASE_TAG" --notes "Draft fork release. Verify Windows signing before publishing." (Get-ChildItem release -File | ForEach-Object { $_.FullName })

@@ -1,18 +1,19 @@
 # Fork CI
 
-This fork runs **Desktop client** on relevant pushes and pull requests. It type-checks, tests and builds the host UI,
-checks the external engine updater with signed temporary stubs, then builds unsigned Windows NSIS, Linux deb and Apple Silicon macOS app test packages. The updater test runs on all three platforms and uses only Python’s standard library; it uses a loopback test feed and does not download a real engine, execute one or use a GPU. The **Minimal serving runtime**
-workflow stays automatic: the desktop uses the same Python server and Control code. The desktop package job stages the
-pinned, verified Node and Python runtimes and locked Python wheels. It does not build or download an engine or model.
+This fork runs **Desktop client** on relevant pushes and pull requests using Windows x64 runners. It runs the
+complete host test suite, browser import test, type check and frontend build, checks signed external engine updates
+and release configuration, then builds an unsigned Windows NSIS test package. The package stages pinned, verified
+Node and Python runtimes and locked Python wheels; it does not build or download an engine or model.
 
-These Actions artifacts are **test builds**, not release installers: they do not include an engine or the optional DeepSeek
-Harness (agent features need the latter). This includes macOS, unlike the upstream release DMG that bundles Metal. They
-are not signed, do not include updater metadata and are not published as a GitHub release. Install an engine explicitly or
-select an existing one before loading a model. Artifacts expire after seven days.
+The Actions artifact is a **test build**, not a release installer. It does not include an engine or the optional
+DeepSeek Harness, is not signed, has no updater metadata and expires after seven days. Select or install an engine
+before loading a model. Existing platform-specific skips in the host suite still apply; no test name filter is used.
 
-The host test step runs the complete `tests/*.test.mjs` suite without a name filter. The app-update test uses the native
-platform's executable name; Time-skip stops its process group and the test recognises exited Linux zombies. A separate
-parent-exit test can still mistake an unreaped zombie for a live process in some containers. CI does not suppress it.
+The upstream **Minimal serving runtime** workflow is manual-only in this fork because it is Linux-specific. Its full
+server suite is therefore not run automatically on Windows. Choose **Run workflow** in Actions to run that Linux
+check manually. The general PR title check may still use a Linux runner; it checks metadata and does not test or
+package the client. Restore automatic Linux runtime checks by reviewing and restoring the upstream triggers in
+`.github/workflows/terminal-minimal-server.yml`.
 
 **Metal build**, **Portable monitor client** and **Scripts test** are manual-only in this fork. In GitHub Actions choose
 one of them and select **Run workflow** to run it once. Docker engine-image publishing was already manual-only and stays
@@ -32,9 +33,9 @@ remain on their existing upstream source and are separate from client releases.
 
 `Prepare signed fork release` is a separate, manually dispatched workflow. It only runs in
 `yeli19950109/Strata` on an existing tag of the form `vMAJOR.MINOR.PATCH`, matching the desktop npm, Cargo and Tauri
-versions. It runs the complete client test suite, stages the same verified runtime dependencies, and builds Windows
-NSIS, Linux AppImage and macOS app updater artifacts without downloading an engine. It verifies each Tauri signature
-against the public key embedded by that build, then combines and re-verifies all three artifacts before creating a
+versions. It runs the complete client test suite on Windows, stages the same verified runtime dependencies, and builds a
+Windows x64 NSIS updater artifact without downloading an engine. It verifies the Tauri signature against the public
+key embedded by that build, then re-verifies the artifact before creating a
 **draft** GitHub release. It never publishes the draft. Existing releases are not overwritten.
 
 Before the first production use, the owner must approve generating a **new fork-only** Tauri minisign key pair in a
@@ -45,17 +46,15 @@ secure place. Do not commit or send the private key. After that separate approva
 - Secret `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`: the key password, when the private key is password protected.
 - Environment `fork-release`: configure required reviewers if the owner wants an Actions approval before the draft job.
 
-Missing keys, an upstream public key, a mismatched private/public pair, missing platform files, a bad signature or a
+Missing keys, an upstream public key, a mismatched private/public pair, a missing Windows artifact, a bad signature or a
 version/tag mismatch fails the workflow. It never turns off signature checking. The public key is injected through a
 Tauri configuration overlay during every release build; the inherited key in the checked-in default config is not a fork
 release key. A user must install the first fork-key build manually before receiving later updates signed by the same key.
 Changing the key breaks updates for already installed clients unless a separately designed key migration is performed.
 Ordinary desktop CI creates unsigned test artifacts and is not an updater release.
 
-The draft contains `.exe`, `.AppImage` and `.app.tar.gz` updater files, their `.sig` files and `latest.json` with URLs
-under the fork tag. The Tauri update signature is **not** Windows Authenticode or Apple Developer signing/notarization.
-The workflow does not configure those OS signing credentials; macOS Gatekeeper and Windows SmartScreen may block an
-unsigned OS package. Do not publish the draft as a production release until OS distribution requirements are addressed.
-If a macOS app is code-signed or notarized afterward, rebuild its updater archive, sign the final archive again and
-regenerate/verify `latest.json`; never publish metadata for the earlier archive. No production key or secret is created
-by this repository change. Engine feed signatures and their upstream keys remain independent.
+The draft contains a Windows `.exe`, its `.sig` and `latest.json` with only the Windows x64 platform and a URL
+under the fork tag. The Tauri update signature is **not** Windows Authenticode; SmartScreen may block an unsigned
+installer. Do not publish the draft as a production release until Windows distribution requirements are addressed.
+No production key or secret is created by this repository change. Engine feed signatures and their upstream keys
+remain independent.
