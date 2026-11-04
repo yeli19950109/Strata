@@ -47,8 +47,8 @@ jobs:
       - name: Run full client tests and typecheck
         working-directory: apps/host
         run: npm test && npm run typecheck
-      - name: Check release and external engine safety
-        run: python -m unittest tests.terminal.test_fork_release tests.terminal.test_external_engine_update -q
+      - name: Check release and engine folder
+        run: python -m unittest tests.terminal.test_fork_release tests.terminal.test_engine_dir_choice -q
       - name: Stage verified Node runtime (Windows)
         shell: pwsh
         run: |
