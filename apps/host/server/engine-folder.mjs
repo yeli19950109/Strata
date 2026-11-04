@@ -12,11 +12,13 @@ const plain = path => typeof path === 'string' && isAbsolute(path) && !/[\0\r\n]
 const isDir = path => { try { return statSync(path).isDirectory(); } catch { return false; } };
 const hasPackages = folder => { try { return readdirSync(folder, { withFileTypes: true }).some(e => e.isDirectory() && existsSync(join(folder, e.name, MANIFEST))); } catch { return false; } };
 
-/** The folder that holds engine packages for what was picked: an engine package itself (its parent), a component folder (its "engine"), or the folder. */
+/** The engine folder for what was picked. An engine package is used as it is (a source checkout's engine/ is one, and Control reads a
+ *  package folder as the engine folder); a folder with an engine/ in it (a component folder, a checkout) means that engine/. */
 export function engineFolderOf(picked) {
   const folder = resolve(picked);
-  if (existsSync(join(folder, MANIFEST))) return dirname(folder);
-  if (!hasPackages(folder) && isDir(join(folder, 'engine'))) return join(folder, 'engine');
+  if (existsSync(join(folder, MANIFEST))) return folder;
+  const inner = join(folder, 'engine');
+  if (existsSync(join(inner, MANIFEST)) || (!hasPackages(folder) && isDir(inner))) return inner;
   return folder;
 }
 
@@ -26,7 +28,7 @@ export function createEngineFolder(directory, { env = process.env } = {}) {
   function saved() {
     try {
       const value = JSON.parse(readFileSync(file, 'utf8'));
-      return plain(value.path) ? value.path : null;
+      return plain(value.path) ? engineFolderOf(value.path) : null;
     } catch { /* none yet */ }
     try {
       const value = JSON.parse(readFileSync(old, 'utf8'));

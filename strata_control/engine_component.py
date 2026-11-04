@@ -267,6 +267,8 @@ def previous_folder(root: Path | None = None) -> str | None:
         return None
     if isinstance(value, str) and value and "/" not in value and "\\" not in value and (engine_dir(base) / value / MANIFEST).is_file():
         return value
+    if isinstance(value, str) and value == engine_dir(base).name and (engine_dir(base) / MANIFEST).is_file():
+        return value                                     # the chosen engine folder is itself the package
     return None
 
 
@@ -941,10 +943,19 @@ def scan(root: Path | None = None) -> tuple[list[EngineComponent], list[dict]]:
     """Every readable engine package in the folder, and the ones that were not (with the reason)."""
     folder = engine_dir(root)
     found, problems = [], []
+    # The folder a person chose can be one engine package itself (a source checkout's engine/): it is listed, and its own
+    # folders (rocm/bin and the like) are not taken for packages; packages an update puts in it beside its files still are.
+    own = (folder / MANIFEST).is_file()
+    if own:
+        try:
+            found.append(read_manifest(folder))
+        except ComponentProblem as exc:
+            problems.append({"folder": str(folder), "problem": str(exc)})
     try:
-        entries = sorted(item for item in folder.iterdir() if item.is_dir() and not item.name.startswith("."))
+        entries = sorted(item for item in folder.iterdir() if item.is_dir() and not item.name.startswith(".")
+                         and not (own and not (item / MANIFEST).is_file()))
     except OSError:
-        return [], []
+        return found, problems
     for entry in entries[:64]:
         try:
             found.append(read_manifest(entry))

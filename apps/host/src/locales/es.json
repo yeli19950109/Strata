@@ -3572,5 +3572,8 @@
   "engdir006": "La carpeta del motor no está disponible. Vuelve a conectar su unidad o elige la carpeta de nuevo.",
   "engdir007": "La carpeta del motor está dentro de una carpeta que se movería. Elige mantener los archivos en su lugar.",
   "engdir008": "Exportar configuración",
-  "engdir009": "Tras importarla, es una configuración de modelo de la app: sus ajustes cambian la copia de la app, nunca este archivo, y al iniciar se aplican las opciones de modelo de la app."
+  "engdir009": "Tras importarla, es una configuración de modelo de la app: sus ajustes cambian la copia de la app, nunca este archivo, y al iniciar se aplican las opciones de modelo de la app.",
+  "engdir010": "Configuración importada",
+  "engdir011": "Esta es tu carpeta del motor. Aquí no se elimina.",
+  "engdir012": "Configuración del modelo"
 }
