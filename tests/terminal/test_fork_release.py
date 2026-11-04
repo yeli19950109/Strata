@@ -23,6 +23,12 @@ class ForkRelease(unittest.TestCase):
         self.public, self.secret = minisign_pair()
         self.tag = 'v' + json.loads((ROOT/'apps/desktop/package.json').read_text())['version']
 
+    def test_version_follows_the_fork_scheme(self):
+        """docs/FORK_VERSIONING.md: fork patch = upstream patch * 100 + fork number (1..99). Fails after an upstream sync that left upstream's version."""
+        patch = int(self.tag.split('.')[2])
+        self.assertGreaterEqual(patch, 100, f'{self.tag} looks like an upstream version; see docs/FORK_VERSIONING.md')
+        self.assertGreaterEqual(patch % 100, 1, f'{self.tag}: the fork number starts at 1; see docs/FORK_VERSIONING.md')
+
     def test_overlay_requires_distinct_valid_key_and_matching_tag(self):
         out = self.root / 'overlay.json'
         with mock.patch.dict(os.environ, {'FORK_TAURI_PUBLIC_KEY': self.public}):

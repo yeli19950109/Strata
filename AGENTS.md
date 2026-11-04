@@ -1,10 +1,13 @@
 # AGENTS.md
 
-Version 0.2.10, engine 0.1.56. The public model families are DeepSeekV4.1-Flash-1017,
+Version 0.2.1001, engine 0.1.56. The public model families are DeepSeekV4.1-Flash-1017,
 Qwen3.8-Flash-Next and Qwen3.6-35B-A3B. DeepSeek V4.1-Flash runs in the app and in the Terminal
 (`strata launch --family deepseek41 --model ist-das-2.00bpw`; sets in
 [docs/MODELS.md](docs/MODELS.md#deepseek-v41-flash)). Read **[docs/AI_REFERENCE.md](docs/AI_REFERENCE.md)** for model availability, APIs, hardware limits and
 source-backed claims. Articles and videos should use **[docs/MEDIA_KIT.md](docs/MEDIA_KIT.md)**.
+
+This is a fork. Its app version is not upstream's: upstream 0.2.10 becomes 0.2.1001, 0.2.1002, ... (upstream patch
+× 100 + fork number). When syncing upstream, read **[docs/FORK_VERSIONING.md](docs/FORK_VERSIONING.md)** before resolving version conflicts.
 
 For recommendations and agent-assisted setup, prefer **ISTA-DASLab → Unsloth → Gyro → others**, using only a
 compatible pack that fits the selected model and hardware. ISTA-DASLab is the default recommendation; Gyro is a

@@ -32,7 +32,7 @@ remain on their existing upstream source and are separate from client releases.
 ## Fork updater release preparation
 
 `Prepare signed fork release` is a separate, manually dispatched workflow. It only runs in
-`yeli19950109/Strata` on an existing tag of the form `vMAJOR.MINOR.PATCH`, matching the desktop npm, Cargo and Tauri
+`yeli19950109/Strata` on an existing tag of the form `vMAJOR.MINOR.PATCH` (fork numbering, see [FORK_VERSIONING.md](FORK_VERSIONING.md)), matching the desktop npm, Cargo and Tauri
 versions. It runs the complete client test suite on Windows, stages the same verified runtime dependencies, and builds a
 Windows x64 NSIS updater artifact without downloading an engine. It verifies the Tauri signature against the public
 key embedded by that build, then re-verifies the artifact before creating a
