@@ -14,7 +14,9 @@ test('the chosen engine folder persists and is handed to Control as its engine f
     assert.equal(a.select(engines).usable,true);assert.equal(env.STRATA_ENGINE_DIR,engines);
     const env2={},b=createEngineFolder(join(root,'app'),{env:env2});b.apply();assert.equal(env2.STRATA_ENGINE_DIR,engines);
     assert.deepEqual(b.status(),{selected:true,usable:true,path:engines,notice:null});
-    rmSync(engines,{recursive:true});assert.equal(b.status().usable,false);assert.match(b.status().notice,/Reconnect/);
+    /* A folder on a drive that is not connected: the saved path names a folder that is not there (deleting one is not immediate on Windows). */
+    const offline=createEngineFolder(join(root,'offline'),{env:{}});mkdirSync(join(root,'offline'));writeFileSync(join(root,'offline','engine-folder.json'),JSON.stringify({path:join(root,'not connected')}));
+    assert.equal(offline.status().selected,true);assert.equal(offline.status().usable,false);assert.match(offline.status().notice,/Reconnect/);
     b.clear();assert.equal(b.status().selected,false);assert.equal(env2.STRATA_ENGINE_DIR,undefined);
   } finally { rmSync(root,{recursive:true,force:true}); }
 });

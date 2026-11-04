@@ -734,7 +734,7 @@ test('a chosen engine folder is persistent, loads through the component referenc
   assert.equal(f.native.state().engineFolder.path,folder);
   const load=await finish(f.native,f.native.operation('load',{model:'iq2_xs'}).id);assert.equal(load.state,'done',load.error);assert.equal(f.saved[0].exe,'component:strata-engine');
   await assert.rejects(f.native.clearEngineFolder(),/Unload models/);await f.native.unload(f.native.state().instances[0].id);
-  rmSync(folder,{recursive:true});assert.equal(f.native.state().engineFolder.selected,true);assert.equal(f.native.state().engineFolder.usable,false);
+  writeFileSync(join(f.data,'engine-folder.json'),JSON.stringify({path:join(f.root,'not connected')}));assert.equal(f.native.state().engineFolder.selected,true);assert.equal(f.native.state().engineFolder.usable,false);
   await f.native.clearEngineFolder();assert.equal(f.native.state().engineFolder.selected,false);
  }finally{await f.native.close();f.cleanup();}
 });
