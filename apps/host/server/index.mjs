@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 import { engineProgressMark } from './agent/engine-progress.mjs';
 import { previewLegacyRunConfig } from './legacy-run-config.mjs';
-import { createExternalEngine } from './external-engine.mjs';
-import { createExternalEngineUpdate } from './external-engine-update-api.mjs';
+import { createEngineFolder } from './engine-folder.mjs';
 import './system-ca.mjs';        // #3722: the operating system's certificates, before any HTTPS request
 import { createCloudflare } from './cloudflare.mjs';
 import { createConnectorInstaller } from './cloudflared-install.mjs';
@@ -76,7 +75,7 @@ import { nativeUnloadPlan } from './storage-check.mjs';
 import { installBundledEngine, cleanupAfterInstall } from './bundled-engine.mjs';
 import { systemLocale } from './region.mjs';
 import { createShellNotifier, DEFAULT_PORT, parsePortNotice, readShellPrefs, writeShellPrefs } from './shell-prefs.mjs';
-import { findControl, createControl, componentsDirectory } from './control-runtime.mjs';
+import { findControl, createControl, componentsDirectory, engineDirectory } from './control-runtime.mjs';
 import { listEngines, changeEngine } from './engine-library.mjs';
 import { forbidden as acquisitionForbidden } from './acquisition.mjs';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
@@ -146,13 +145,15 @@ function shellState() {
     portNotice: parsePortNotice(process.env.STRATA_PORT_NOTICE),
   };
 }
+/* The engine folder the person chose (Settings) is the app's engine folder: every Control process is told (STRATA_ENGINE_DIR). */
+const engineFolder=createEngineFolder(store.DATA_DIR);engineFolder.apply();
 /* The engine that ships inside the installer is put in the components folder when this PC has none (or an older one); no network, hashes checked. The model list waits for it. */
 const bundledEngine = control && !process.env.STRATA_NO_BUNDLED_ENGINE
-  ? installBundledEngine({ bundleDir: process.env.STRATA_ENGINE_BUNDLE_DIR || resolve(HERE, '..', '..', 'engine-bundle'), components: componentsDirectory(), log: line => console.log(line) })
+  ? installBundledEngine({ bundleDir: process.env.STRATA_ENGINE_BUNDLE_DIR || resolve(HERE, '..', '..', 'engine-bundle'), components: componentsDirectory(), engineRoot: engineDirectory(), log: line => console.log(line) })
   : Promise.resolve({ action: 'none' });
 const engineBundleDir = process.env.STRATA_ENGINE_BUNDLE_DIR || resolve(HERE, '..', '..', 'engine-bundle');
 /* An update from a per-GPU installer leaves its engine-bundle behind; it goes only when the same engine is complete in the store (sizes and hashes). */
-cleanupAfterInstall(bundledEngine, { bundleDir: engineBundleDir, components: componentsDirectory() });
+cleanupAfterInstall(bundledEngine, { bundleDir: engineBundleDir, components: componentsDirectory(), engineRoot: engineDirectory() });
 let bundledEngineSettled = !(control && !process.env.STRATA_NO_BUNDLED_ENGINE);
 bundledEngine.then(() => { bundledEngineSettled = true; }, () => { bundledEngineSettled = true; });
 /* A build made for another make of graphics card is not unpacked; Control's answer then carries the plain sentence (with the right download) instead of its own. */
@@ -165,8 +166,7 @@ if (control) {
     return answer && !answer.usable && bundledWrongMake ? { ...answer, notice: bundledWrongMake, wrongMake: true } : answer;
   };
 }
-const externalEngine=createExternalEngine(store.DATA_DIR);
-const native=createNativeControl({control,ready:bundledEngine,appUpdater,hardwareProbe:()=>(hardware.cachedHardware()?.gpus??[]).map((g,n)=>({index:g.index??n,vram_gb:g.vramGb})),directory:store.DATA_DIR,modelsDirectory:()=>store.MODELS_DIR,nativeDataDirectory:store.nativeDataDirectory,beforeLoad:async()=>{if(models.REAL&&models.library().loaded){if(serving.state().requests.some(r=>runtimeModels.state().instances.some(i=>i.id===r.instanceId)&&["queued","generating"].includes(r.state)))throw new Error("Finish requests before switching engines.");await models.unload();runtimeState();}},requests:()=>serving.state().requests,changed:value=>hub.send('native',value)});
+const native=createNativeControl({control,engineFolder,ready:bundledEngine,appUpdater,hardwareProbe:()=>(hardware.cachedHardware()?.gpus??[]).map((g,n)=>({index:g.index??n,vram_gb:g.vramGb})),directory:store.DATA_DIR,modelsDirectory:()=>store.MODELS_DIR,nativeDataDirectory:store.nativeDataDirectory,beforeLoad:async()=>{if(models.REAL&&models.library().loaded){if(serving.state().requests.some(r=>runtimeModels.state().instances.some(i=>i.id===r.instanceId)&&["queued","generating"].includes(r.state)))throw new Error("Finish requests before switching engines.");await models.unload();runtimeState();}},requests:()=>serving.state().requests,changed:value=>hub.send('native',value)});
 /* The agent: chats become DeepSeek Harness sessions when that component is installed. It is a separate
    pinned component (STRATA_HARNESS_DIR), not part of this host, so its absence is a visible capability
    state and the chat falls back to the direct path with a notice, never silently to another model. */
@@ -224,12 +224,6 @@ const agent = createAgentBridge({
 });
 let storageChanging = false;
 let modelOperations = 0;
-const externalEngineUpdate=createExternalEngineUpdate({control,directory:store.DATA_DIR,selected:()=>externalEngine.status(),exclusive:async action=>{
-  const state=native.state();
-  if(storageChanging||modelOperations>1||state.instances.length||state.jobs.some(j=>j.state==='running')||(Array.isArray(state.external)&&state.external.length)||models.directoryBusy()||imageModels.busy()||(models.REAL&&models.library().loaded))throw new Error('Unload models and finish running operations before updating an external engine.');
-  storageChanging=true;
-  try{return await action();}finally{storageChanging=false;}
-}});
 const requestQueue = new RequestQueue(n => monitor.queueWaiting(n));
 // The supervisor raises its own event names; surface them on the client stream.
 let runtimeModels;
@@ -984,7 +978,6 @@ const server = http.createServer(async (req, res) => {
     }
     if (path.startsWith('/api/')) {
       const modelOperation = !['GET', 'OPTIONS'].includes(method) && /^\/api\/(models|local-models|runtime|image-models|engine|native)(\/|$)/.test(path) && !['/api/runtime/plan', '/api/engine/validate', '/api/local-models/inspect'].includes(path);
-      if(modelOperation && externalEngineUpdate.pending() && !['/api/native/external-engine/update/recover','/api/native/legacy/preview'].includes(path))return error(res,409,'Restore the interrupted external engine update before loading or changing models.');
       if (modelOperation) modelOperations++;
       try { return await api(req, res, path, method, url); }
       finally { if (modelOperation) modelOperations--; }
@@ -1009,17 +1002,18 @@ async function api(req, res, path, method, url) {
   if(path==='/api/native'&&method==='GET')return json(res,200,await native.refresh(url.searchParams.get('refresh')==='1'));
   if(path==='/api/native'&&method==='PATCH')return json(res,200,await native.configure(await readBody(req)));
   if(path==='/api/native/directory'&&method==='POST')return json(res,200,native.setDownloadDirectory((await readBody(req)).directory));
-  if(path==='/api/native/external-engine'&&method==='GET')return json(res,200,externalEngine.status());
-  if(path==='/api/native/external-engine/update/status'&&method==='GET')return json(res,200,{pendingRecovery:externalEngineUpdate.pending()});
-  if(path==='/api/native/external-engine'&&method==='POST'){if(externalEngineUpdate.pending())throw new Error('Restore the interrupted external engine update before changing the engine.');const {path:enginePath}=await readBody(req);return json(res,200,await native.selectExternalEngine(enginePath));}
-  if(path==='/api/native/external-engine'&&method==='DELETE'){if(externalEngineUpdate.pending())throw new Error('Restore the interrupted external engine update before changing the engine.');return json(res,200,await native.clearExternalEngine());}
-  if(path==='/api/native/external-engine/update/check'&&method==='POST')return json(res,200,await externalEngineUpdate.check());
-  if(path==='/api/native/external-engine/update/apply'&&method==='POST'){const body=await readBody(req);return json(res,200,await externalEngineUpdate.apply(body.confirmationToken));}
-  if(path==='/api/native/external-engine/update/recover'&&method==='POST')return json(res,200,await externalEngineUpdate.recover());
-  if(path==='/api/native/legacy/preview'&&method==='POST'){const {text}=await readBody(req,2*1024*1024);const preview=previewLegacyRunConfig(text);return json(res,200,{config:preview.config,issues:preview.issues,overrides:preview.overrides});}
-  if(path==='/api/native/legacy/import'&&method==='POST'){if(externalEngineUpdate.pending())throw new Error('Restore the interrupted external engine update before importing a configuration.');const {text,id}=await readBody(req,2*1024*1024);return json(res,200,await native.importLegacy(text,id));}
-  const legacyReview=/^\/api\/native\/legacy\/([a-z0-9_.-]+)\/load-review$/i.exec(path);
-  if(legacyReview&&method==='GET')return json(res,200,native.legacyLoadReview(legacyReview[1]));
+  if(path==='/api/native/engine-folder'&&method==='GET')return json(res,200,engineFolder.status());
+  if(path==='/api/native/engine-folder'&&method==='POST'){
+   /* Settings: pick (or type) the engine folder. From then on it is the app's engine folder (start, update, roll back), the same as the one the app made. */
+   const typed=await typedFolder((await readBody(req)).path,{isAbsolute});
+   const picked=typed?{path:typed}:await chooseFolder('Choose your engine folder');
+   if(picked.unavailable){const u=chooserUnavailable(picked);return error(res,501,u.message,{code:u.code});}
+   if(picked.cancelled)return json(res,200,{cancelled:true,...engineFolder.status()});
+   return json(res,200,await native.selectEngineFolder(picked.path));}
+  if(path==='/api/native/engine-folder'&&method==='DELETE')return json(res,200,await native.clearEngineFolder());
+  if(path==='/api/native/legacy/preview'&&method==='POST'){const {text}=await readBody(req,2*1024*1024);const preview=previewLegacyRunConfig(text);return json(res,200,{config:preview.config,issues:preview.issues,knownModel:preview.knownModel,overrides:preview.overrides});}
+  if(path==='/api/native/models/export'&&method==='POST'){const {model}=await readBody(req);return json(res,200,native.exportConfig(model));}
+  if(path==='/api/native/legacy/import'&&method==='POST'){const {text,id}=await readBody(req,2*1024*1024);return json(res,200,await native.importLegacy(text,id));}
   /* Settings > Storage > Models folder: pick (or type) a folder, say what it means, then start the choice. Copying is Control's (strata models move). */
   if(path==='/api/native/models-folder/plan'&&method==='POST'){
    const typed=await typedFolder((await readBody(req)).path,{isAbsolute});
@@ -1032,7 +1026,7 @@ async function api(req, res, path, method, url) {
   if(path==='/api/native/models-folder/resume'&&method==='POST'){const body=await readBody(req);return json(res,202,await native.finishInterruptedMove({stopRunning:body.stopRunning===true}));}
   if(path==='/api/native/models-folder/leave'&&method==='POST')return json(res,200,await native.leaveInterruptedMove());
   if(path==='/api/native/plan'&&method==='POST')return json(res,200,await native.plan(await readBody(req)));
-  if(path==='/api/native/operations'&&method==='POST'){if(storageChanging)return error(res,409,'Wait for the model folder check to finish.');const body=await readBody(req);if(externalEngineUpdate.pending()&&['load','install','tune','autotune','recheck','calibrate','update-engine','rollback','install-engine-file'].includes(body.kind))return error(res,409,'Restore the interrupted external engine update before loading models or changing engines.');return json(res,202,native.operation(body.kind,body.args));}
+  if(path==='/api/native/operations'&&method==='POST'){if(storageChanging)return error(res,409,'Wait for the model folder check to finish.');const body=await readBody(req);return json(res,202,native.operation(body.kind,body.args));}
   if(path==='/api/native/engine-restart/dismiss'&&method==='POST')return json(res,200,native.dismissRestart());
   if(path==='/api/native/logs'&&method==='GET')return json(res,200,{logs:native.logs()});
   if(path==='/api/native/logs/save'&&method==='POST'){
@@ -1322,7 +1316,7 @@ async function api(req, res, path, method, url) {
       control: CONTROL ? { dir: CONTROL.dir, python: CONTROL.python, version: control.version, bundle: CONTROL.bundle } : null,
       engine,
       engineSetup: !bundledEngineSettled,
-      externalEngine: externalEngine.status(),
+      engineFolder: engineFolder.status(),
       componentsDir: componentsDirectory(),
       acquisition: { forbidden: acquisitionForbidden(), env: process.env.STRATA_NO_ACQUIRE ?? null },
     });
@@ -1384,7 +1378,6 @@ async function api(req, res, path, method, url) {
     return json(res, status, body);
   }
   if ((path === '/api/engines/use' || path === '/api/engines/remove') && method === 'POST') {
-    if (native.protectManagedEngines() || externalEngineUpdate.pending()) return error(res, 409, 'Disconnect the external engine and finish any interrupted update before changing managed engines.');
     const { status, body } = await changeEngine(control, path.endsWith('/use') ? 'use' : 'remove', await readBody(req), { modelsRunning: () => native.state().instances.length > 0 });
     if (status === 200) Promise.resolve(native.refresh?.(true)).catch(() => { /* the next poll reads it */ });
     return json(res, status, body);

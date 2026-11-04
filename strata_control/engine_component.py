@@ -58,6 +58,7 @@ MANIFEST = "engine-component.json"
 COMPONENT_ID = "strata-engine"
 ENV_DIR = "STRATA_COMPONENTS_DIR"
 ENV_BACKEND = "STRATA_ENGINE_BACKEND"
+ENV_ENGINE_DIR = "STRATA_ENGINE_DIR"           # the app's engine folder when the person chose one (Settings); otherwise <components>/engine
 ENV_REQUIRE_SIGNED = "STRATA_REQUIRE_SIGNED_COMPONENTS"
 #: The updater's state (``strata update``, ``strata components rollback``) lives in the component folder; the only member the
 #: start path reads is ``engine.pinned``: the folder a manual rollback chose, which wins over a newer installed package.
@@ -187,6 +188,12 @@ def components_dir(environ=None, *, windows: bool | None = None, home: Path | No
 
 
 def engine_dir(root: Path | None = None) -> Path:
+    """The folder that holds the engine packages. ``STRATA_ENGINE_DIR`` (an engine folder the person chose in the app) replaces
+    ``<components>/engine`` for the person's own component folder; it is used exactly like that folder (start, update, rollback,
+    remove). A different root (an update's staging folder) keeps its own ``engine`` folder."""
+    explicit = os.environ.get(ENV_ENGINE_DIR)
+    if explicit and (root is None or Path(root) == components_dir()):
+        return Path(explicit)
     return (root or components_dir()) / "engine"
 
 

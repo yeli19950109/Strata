@@ -125,10 +125,10 @@ test('NativeModels falls back to the latest job for the selected version, not an
 
 test('imported runs remain visible outside the download catalog and missing files do not offer a load',async()=>{
  const m=await load();
- globalThis.__native={...base,catalog:{families:[],contexts:[],recommendation:{family:null,model:null}},installed:{...base.installed,models:[{model:'old-run',model_name:'My existing model',externalImport:true,ready:false,missing:['engine']} ]}};
+ globalThis.__native={...base,catalog:{families:[],contexts:[],recommendation:{family:null,model:null}},installed:{...base.installed,models:[{model:'old-run',model_name:'My existing model',imported:true,ready:false,missing:['engine']} ]}};
  globalThis.__store=store();
  const html=m.renderToString(m.createElement(m.NativeModels));
- assert.match(html,/My existing model/);assert.match(html,/Some files are unavailable/);assert.match(html,/Import run JSON/);assert.match(html,/Remove from Strata/);assert.match(html,/disabled=""[^>]*>Load/);
+ assert.match(html,/My existing model/);assert.match(html,/Some files are unavailable/);assert.match(html,/Import run JSON/);assert.match(html,/Edit configuration/);assert.match(html,/Remove from Strata/);assert.match(html,/disabled=""[^>]*>Load/);
 });
 
 /* The first-run model step starts on a version that is already on this computer, else on the catalog's recommendation, never on the first

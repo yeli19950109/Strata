@@ -7,7 +7,7 @@ import { useDownloadEta } from '../lib/download-eta';
 import type { NativeJob } from '../lib/native';
 import { megabytes } from '../lib/format';
 import { LegacyRunImport } from './LegacyRunImport';
-import { ExternalEngineChoice } from './ExternalEngineChoice';
+import { EngineFolderChoice } from './EngineFolderChoice';
 import { completeSetupStep, openSetup, go } from '../lib/store';
 import { FirstRunLanguage } from './FirstRunLanguage';
 
@@ -33,10 +33,10 @@ export function useEngineNeeded(): boolean | null {
     const [needed, setNeeded] = useState<boolean | null>(null);
     useEffect(() => {
         let live = true;
-        const ask = () => api.get<{ engine?: { usable?: boolean } | null; engineSetup?: boolean; externalEngine?: { selected?: boolean } }>('/api/control/status').then(s => {
+        const ask = () => api.get<{ engine?: { usable?: boolean } | null; engineSetup?: boolean }>('/api/control/status').then(s => {
             if (!live) return;
             if (s.engineSetup) return setNeeded(null);
-            setNeeded(!s.externalEngine?.selected && !!s.engine && s.engine.usable === false);
+            setNeeded(!!s.engine && s.engine.usable === false);
         }, () => { if (live) setNeeded(false); });
         void ask();
         const timer = setInterval(() => void ask(), 3000);
@@ -175,5 +175,5 @@ export function EngineFirstRun({ onDone }: { onDone: () => void }) {
             {problem ? <div className="onboard-error" style={{ maxWidth: 560, margin: '0 auto' }}><p role="alert" className="small inline-error">{problem}</p></div> : null}
             <footer className="onboard-footer onboard-footer--welcome">{actions}<button type="button" className="onboard-continue-anyway" disabled={busy} onClick={() => setEngineOpen(true)}>{tr('Use an existing engine…')}</button><button type="button" className="onboard-continue-anyway" disabled={busy} onClick={() => setImportOpen(true)}>{tr('Use an existing engine and JSON configuration…')}</button></footer></>;
     }
-    return <div className="setup guided-onboarding" data-step="engine">{hidden}<ExternalEngineChoice open={engineOpen} onClose={() => setEngineOpen(false)} onDone={onDone}/><LegacyRunImport open={importOpen} onClose={() => setImportOpen(false)} onImported={() => { void completeSetupStep(1, undefined, true).then(() => { openSetup(false); go('models'); }).catch(e => setProblem(e instanceof Error ? e.message : String(e))); }}/><header className="onboard-header"><Brand variant="lockup" height={22}/><FirstRunLanguage/></header>{body}</div>;
+    return <div className="setup guided-onboarding" data-step="engine">{hidden}<EngineFolderChoice open={engineOpen} onClose={() => setEngineOpen(false)} onDone={onDone}/><LegacyRunImport open={importOpen} onClose={() => setImportOpen(false)} onImported={() => { void completeSetupStep(1, undefined, true).then(() => { openSetup(false); go('models'); }).catch(e => setProblem(e instanceof Error ? e.message : String(e))); }}/><header className="onboard-header"><Brand variant="lockup" height={22}/><FirstRunLanguage/></header>{body}</div>;
 }

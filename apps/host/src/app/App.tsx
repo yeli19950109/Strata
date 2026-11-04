@@ -9,7 +9,6 @@ import { Sidebar } from './Sidebar';
 import { CommandPalette } from './CommandPalette';
 import { ShortcutsDialog } from './Shortcuts';
 import { FolderPathDialog } from '../components/FolderPathDialog';
-import { ExternalEngineRecovery } from '../components/ExternalEngineRecovery';
 import { MOD, handleAppShortcut, runCommand } from '../lib/commands';
 import { useMedia } from '../lib/responsive';
 import { Btn, Dialog, IconBtn, Toasts } from '../components/ui';
@@ -75,7 +74,6 @@ function AppShell() {
             <SetupScreen />
           </div>
         </div>) : null)}
-      <ExternalEngineRecovery />
       <Toasts />
     </div>);
 }

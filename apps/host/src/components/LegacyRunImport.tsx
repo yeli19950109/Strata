@@ -4,7 +4,7 @@ import { api } from '../lib/client';
 import { refreshNative } from '../lib/native';
 import { Btn, Dialog } from './ui';
 
-type Preview = { config: Record<string, unknown>; issues: {level:string;message:string}[]; overrides: string[] };
+type Preview = { config: Record<string, unknown>; issues: {level:string;message:string}[]; overrides: string[]; knownModel?:{family:string;quant:string;shardsMatch:boolean}|null };
 
 /** Select and review an existing run config. Selection and preview only read the file. */
 export function LegacyRunImport({open,onClose,onImported}:{open:boolean;onClose:()=>void;onImported?:()=>void}) {
@@ -37,6 +37,7 @@ export function LegacyRunImport({open,onClose,onImported}:{open:boolean;onClose:
         <input ref={file} type="file" accept=".json,application/json" onChange={e => void chosen(e.target.files?.[0])}/>
         {problem ? <p role="alert" className="inline-error">{problem}</p> : null}
         {preview ? <>
+          {preview.knownModel?<div className="stack"><strong>{preview.knownModel.family} · {preview.knownModel.quant}</strong><p>{tr('Use a native pack built from this SC117 variant, with both original GGUF shards. Do not reuse the official model’s pack. For MTP, use the Strata runtime directory, not a llama.cpp GGUF.')}</p>{!preview.knownModel.shardsMatch?<p role="alert" className="inline-error">{tr('The second SC117 shard does not match the first. Check the --ple-gguf path before loading.')}</p>:null}<p className="small muted">{tr('Strata keeps the paths in your configuration; it does not verify that this pack was built from these shards.')}</p></div>:null}
           <label>{tr('Name in Strata')}<input className="input" value={id} maxLength={80} onChange={e=>setId(e.target.value)} /></label>
           <p>{tr('The paths below are kept as written. If a drive or file is unavailable, reconnect it before loading the model.')}</p>
           {preview.config.before_load ? <p role="alert" className="inline-error">{tr('This configuration includes a before_load command. It will run when the model starts; review it carefully.')}</p> : null}

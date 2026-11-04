@@ -2,7 +2,7 @@ import './helpers/isolate-profile.mjs';   // a test run never writes the owner's
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createNativeControl } from '../server/native-control.mjs';
@@ -13,7 +13,7 @@ function fixture(t, { plan = {}, move = null, unfinished = null } = {}) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'strata-mfolder-')));
   const install = join(root, 'install'), data = join(root, 'host'), oldFolder = join(root, 'old'), newFolder = join(root, 'new');
   for (const d of [install, data, oldFolder, newFolder]) mkdirSync(d, { recursive: true });
-  const earlier = { install: process.env.STRATA_INSTALL_DIR, terminal: process.env.STRATA_TERMINAL_SETTINGS_FILE, settings: process.env.STRATA_SETTINGS_FILE, comp: process.env.STRATA_COMPONENTS_DIR };
+  const earlier = { engineDir: process.env.STRATA_ENGINE_DIR, install: process.env.STRATA_INSTALL_DIR, terminal: process.env.STRATA_TERMINAL_SETTINGS_FILE, settings: process.env.STRATA_SETTINGS_FILE, comp: process.env.STRATA_COMPONENTS_DIR };
   process.env.STRATA_INSTALL_DIR = install;
   process.env.STRATA_TERMINAL_SETTINGS_FILE = join(root, 'terminal-settings.json');
   process.env.STRATA_COMPONENTS_DIR = join(root, 'components');
@@ -47,13 +47,13 @@ function fixture(t, { plan = {}, move = null, unfinished = null } = {}) {
   const spawnProcess = () => { throw new Error('the host starts no process here'); };
   const native = createNativeControl({ control, directory: data, spawnProcess, fetcher: async () => Response.json({}), requests: () => [] });
   t.after(() => {
-    for (const [key, name] of [['install', 'STRATA_INSTALL_DIR'], ['terminal', 'STRATA_TERMINAL_SETTINGS_FILE'], ['settings', 'STRATA_SETTINGS_FILE'], ['comp', 'STRATA_COMPONENTS_DIR']]) {
+    for (const [key, name] of [['engineDir', 'STRATA_ENGINE_DIR'], ['install', 'STRATA_INSTALL_DIR'], ['terminal', 'STRATA_TERMINAL_SETTINGS_FILE'], ['settings', 'STRATA_SETTINGS_FILE'], ['comp', 'STRATA_COMPONENTS_DIR']]) {
       if (earlier[key] === undefined) delete process.env[name]; else process.env[name] = earlier[key];
     }
     rmSync(root, { recursive: true, force: true });
   });
   native.setDownloadDirectory(oldFolder);
-  return { native, control, calls, root, install, oldFolder, newFolder, terminalFile: process.env.STRATA_TERMINAL_SETTINGS_FILE };
+  return { native, control, calls, root, data, install, oldFolder, newFolder, terminalFile: process.env.STRATA_TERMINAL_SETTINGS_FILE };
 }
 const finish = async (native, id) => { for (let i = 0; i < 400; i++) { const job = native.state().jobs.find(j => j.id === id); if (job.state !== 'running') return job; await new Promise(r => setTimeout(r, 10)); } throw new Error('job did not finish'); };
 
@@ -96,6 +96,41 @@ test('Keep: the new folder is used for new downloads, nothing is moved, both set
   assert.equal(f.native.state().downloadDirectory, f.newFolder);
   assert.equal(f.calls.some(c => c[0] === 'move'), false);
   assert.equal(JSON.parse(readFileSync(f.terminalFile, 'utf8')).data_dir, f.newFolder);
+});
+
+test('a chosen engine folder and imported records do not prevent choosing a new folder while keeping original files', async t => {
+  const f=fixture(t), engines=join(f.root,'own-engines'), legacy=f.install;
+  mkdirSync(engines);writeFileSync(join(engines,'marker'),'engine');
+  writeFileSync(join(f.data,'engine-folder.json'),JSON.stringify({path:engines}));
+  const record=join(legacy,'strata-mine.json'), original=JSON.stringify({ui_imported:true,exe:'component:strata-engine',args:['--native',join(f.oldFolder,'models','mine.gguf')]});writeFileSync(record,original);
+  const plan=await f.native.planModelsFolder(f.newFolder);assert.equal(plan.choices.keep.possible,true);assert.equal(plan.choices.move.possible,false);
+  await f.native.startModelsFolder({folder:f.newFolder,choice:'keep'});
+  assert.equal(f.native.state().downloadDirectory,realpathSync(f.newFolder));assert.equal(readFileSync(record,'utf8'),original);assert.equal(readFileSync(join(engines,'marker'),'utf8'),'engine');
+  const restored=createNativeControl({control:f.control,directory:f.data,spawnProcess:()=>{throw new Error('no process');},fetcher:async()=>Response.json({}),requests:()=>[]});
+  assert.equal(restored.state().downloadDirectory,realpathSync(f.newFolder));assert.equal(restored.state().engineFolder.path,engines);
+  await restored.clearEngineFolder();assert.equal(restored.state().downloadDirectory,realpathSync(f.newFolder));await restored.close();
+});
+
+test('an engine folder inside model files cannot be moved or overwritten', async t => {
+  const f=fixture(t), engines=join(f.oldFolder,'models','owned');mkdirSync(engines,{recursive:true});writeFileSync(join(engines,'marker'),'engine');
+  writeFileSync(join(f.data,'engine-folder.json'),JSON.stringify({path:engines}));const plan=await f.native.planModelsFolder(f.newFolder);
+  assert.equal(plan.choices.move.possible,false);assert.equal(plan.choices.keep.possible,true);
+  await assert.rejects(f.native.startModelsFolder({folder:f.newFolder,choice:'move'}),/engine folder/);assert.equal(readFileSync(join(engines,'marker'),'utf8'),'engine');
+});
+
+test('an engine folder outside the model folders does not block a managed model move', async t => {
+  const f=fixture(t), engines=join(f.root,'own-engines');mkdirSync(engines);
+  writeFileSync(join(f.data,'engine-folder.json'),JSON.stringify({path:engines}));
+  const plan=await f.native.planModelsFolder(f.newFolder);assert.equal(plan.choices.move.possible,true);
+  const job=await f.native.startModelsFolder({folder:f.newFolder,choice:'move'});assert.equal((await finish(f.native,job.id)).state,'done');
+  assert.equal(f.native.state().downloadDirectory,realpathSync(f.newFolder));assert.equal(f.native.state().engineFolder.path,engines);
+});
+
+test('an imported model outside both folders does not block moving managed models', async t => {
+  const f=fixture(t), legacy=f.install, own=join(f.root,'my-model');mkdirSync(own);
+  const record=join(legacy,'strata-mine.json'), text=JSON.stringify({ui_imported:true,exe:join(own,'strata.exe'),tokenizer:join(own,'tokenizer'),args:['--native',join(own,'first.gguf'),'--pack',join(own,'pack')],env:{MY_LIBRARY:join(own,'library')}});writeFileSync(record,text);
+  const plan=await f.native.planModelsFolder(f.newFolder);assert.equal(plan.choices.move.possible,true);
+  const job=await f.native.startModelsFolder({folder:f.newFolder,choice:'move'});assert.equal((await finish(f.native,job.id)).state,'done');assert.equal(readFileSync(record,'utf8'),text);
 });
 
 test('Start empty: the old models are no longer listed (their run configs are set aside, not deleted), the model files stay', async t => {

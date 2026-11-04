@@ -19,9 +19,9 @@ async function stopHost(child) {
  } else child.kill('SIGTERM');
  await exited;
 }
-test('preview, engine choice, offline status and dismissed setup persist without running the engine', {timeout:30000}, async()=>{
- const home=await mkdtemp(join(tmpdir(),'strata-旧配置 ')), engine=join(home,'my engine');
- await writeFile(engine,'not an executable program',{mode:0o755});
+test('preview, engine folder choice, offline status and dismissed setup persist without running the engine', {timeout:30000}, async()=>{
+ const home=await mkdtemp(join(tmpdir(),'strata-旧配置 ')), engines=join(home,'my engines');
+ await mkdir(engines,{recursive:true});
  const p=await port(), base=`http://127.0.0.1:${p}`; let child;
  const call=async(path,method='GET',body)=>{const r=await fetch(base+path,{method,headers:body===undefined?undefined:{'content-type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});return {status:r.status,body:await r.json()};};
  async function start(){child=spawn(process.execPath,['server/index.mjs'],{cwd:root,stdio:'ignore',env:{...process.env,STRATA_HOME:home,STRATA_MODELS_DIR:join(home,'models'),STRATA_PORT:String(p),STRATA_REAL_ENGINE:'0',STRATA_NO_ACQUIRE:'1'}});for(let i=0;i<100;i++){try{if((await call('/api/health')).status===200)return;}catch{} await wait(100);}throw new Error('host did not start');}
@@ -31,20 +31,12 @@ test('preview, engine choice, offline status and dismissed setup persist without
   const source='\ufeff'+JSON.stringify({exe:'Y:\\Strata\\engine\\strata.exe',cwd:'Y:\\Strata',args:['--pack','Y:\\模型 1\\pack'],tokenizer:'Y:\\模型 1\\tokenizer',lib_dirs:['Y:\\Strata\\rocm\\bin'],env:{STRATA_HIP_WMMA:'1'},port:8080});
   const preview=await call('/api/native/legacy/preview','POST',{text:source});assert.equal(preview.status,200);assert.equal(preview.body.config.exe,'Y:\\Strata\\engine\\strata.exe');assert.deepEqual(preview.body.config.args,['--pack','Y:\\模型 1\\pack']);
   assert.equal((await call('/api/native/legacy/preview','POST',{text:'{'})).status,400);
-  const selected=await call('/api/native/external-engine','POST',{path:engine});assert.equal(selected.status,200);assert.equal(selected.body.path,engine);assert.equal(selected.body.usable,true);
-  assert.equal((await call('/api/engines/remove','POST',{family:'qwen',folder:'0.1.56'})).status,409);
-  assert.equal((await call('/api/engines/use','POST',{family:'qwen',folder:'0.1.56'})).status,409);
+  const selected=await call('/api/native/engine-folder','POST',{path:engines});assert.equal(selected.status,200,JSON.stringify(selected.body));assert.equal(selected.body.path,engines);assert.equal(selected.body.usable,true);
   await call('/api/setup/step','POST',{step:1,flowVersion:2,dismissed:true});
   await stop();await start();
-  let status=(await call('/api/control/status')).body.externalEngine;assert.equal(status.selected,true);assert.equal(status.path,engine);assert.equal((await call('/api/setup')).body.dismissed,true);
-  const pendingDir=join(home,'data','external-engine-updates','backups');await mkdir(pendingDir,{recursive:true});const pending=join(pendingDir,'pending.json');await writeFile(pending,'{}');
-  assert.equal((await call('/api/native/external-engine/update/status')).body.pendingRecovery,true);
-  assert.equal((await call('/api/native/external-engine','DELETE')).status,409);
-  assert.equal((await call('/api/native/operations','POST',{kind:'load',args:{model:'mine'}})).status,409);
-  assert.equal((await call('/api/runtime/load','POST',{})).status,409);
-  await rm(pending);
-  await rm(engine);status=(await call('/api/native/external-engine')).body;assert.equal(status.selected,true);assert.equal(status.usable,false);assert.ok(status.notice);
-  const cleared=await call('/api/native/external-engine','DELETE');assert.equal(cleared.status,200);assert.equal(cleared.body.selected,false);
+  let status=(await call('/api/control/status')).body.engineFolder;assert.equal(status.selected,true);assert.equal(status.path,engines);assert.equal((await call('/api/setup')).body.dismissed,true);
+  await rm(engines,{recursive:true});status=(await call('/api/native/engine-folder')).body;assert.equal(status.selected,true);assert.equal(status.usable,false);assert.ok(status.notice);
+  const cleared=await call('/api/native/engine-folder','DELETE');assert.equal(cleared.status,200);assert.equal(cleared.body.selected,false);
  } finally {await stop();await rm(home,{recursive:true,force:true,maxRetries:10,retryDelay:200});}
 });
 
@@ -73,12 +65,12 @@ else if(args.includes('engine'))console.log(JSON.stringify({usable:false,notice:
  try {
   await start();const cfg={exe:'Y:\\Strata\\engine\\strata.exe',cwd:'Y:\\Strata',args:['--pack','Y:\\模型\\pack'],tokenizer:'Y:\\模型\\tokenizer',model_name:'Existing',env:{STRATA_HIP_WMMA:'1'},port:8080,before_load:['echo','inspect only']};const text='\ufeff'+JSON.stringify(cfg);
   const preview=await call('/api/native/legacy/preview','POST',{text});assert.equal(preview.status,200);assert.deepEqual(preview.body.config,cfg);
-  const imported=await call('/api/native/legacy/import','POST',{text,id:'mine'});assert.equal(imported.status,200,JSON.stringify(imported.body));assert.equal(imported.body.installed.models.find(m=>m.model==='mine').externalImport,true);
-  const review=await call('/api/native/legacy/mine/load-review');assert.equal(review.status,200);assert.deepEqual(review.body.beforeLoad,cfg.before_load);assert.match(review.body.configHash,/^[0-9a-f]{64}$/);
+  const imported=await call('/api/native/legacy/import','POST',{text,id:'mine'});assert.equal(imported.status,200,JSON.stringify(imported.body));assert.equal(imported.body.installed.models.find(m=>m.model==='mine').imported,true);
   const duplicate=await call('/api/native/legacy/import','POST',{text,id:'mine'});assert.equal(duplicate.status,400);assert.match(duplicate.body.error,/already exists/);
   const invalid=await call('/api/native/legacy/import','POST',{text:'{',id:'other'});assert.equal(invalid.status,400);assert.ok(invalid.body.error);
   await call('/api/setup/step','POST',{step:1,flowVersion:2,dismissed:true});await stop();await start();
-  assert.equal((await call('/api/setup')).body.dismissed,true);const status=await call('/api/native?refresh=1');assert.equal(status.body.installed.models.find(m=>m.model==='mine').externalImport,true);
-  const saved=await (await import('node:fs/promises')).readFile(join(home,'data','legacy-models','strata-mine.json'),'utf8');assert.equal(saved,text);
+  assert.equal((await call('/api/setup')).body.dismissed,true);const status=await call('/api/native?refresh=1');assert.equal(status.body.installed.models.find(m=>m.model==='mine').imported,true);
+  const saved=JSON.parse(await (await import('node:fs/promises')).readFile(join(install,'strata-mine.json'),'utf8'));assert.deepEqual(saved,{...cfg,ui_imported:true});
+  assert.equal((await call('/api/native/legacy/mine/config')).status,404);
  } finally {await stop();await rm(home,{recursive:true,force:true,maxRetries:10,retryDelay:200});}
 });
