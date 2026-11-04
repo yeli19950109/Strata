@@ -58,7 +58,7 @@ export function previewLegacyRunConfig(text) {
     if (!value || !(config.args[i - 1] === '--mtp' && /^\d+$/.test(value)) && !usablePath(value, config.cwd)) throw new Error(`"${config.args[i - 1]}" must name an absolute path or a path relative to an absolute cwd.`);
   }
   const issues = checked.issues.map(issue => issue.code === 'args-managed' ? {...issue, message: 'Network flags in args are passed to the engine. They do not configure the app server; check that your engine accepts them.'} : issue);
-  return { text, config, issues, knownModel:identifySc117(config), overrides: ['The app server uses localhost, chooses its own port and API key, and disables automatic browser opening.', 'The app adds a model alias and may increase the startup timeout. The engine receives the listed args in order; separate settings that normally rewrite those args are not applied.', 'The server may adjust GPU and HIP environment settings for the selected hardware.'] };
+  return { text, config, issues, knownModel:identifySc117(config), overrides: ['The app server uses localhost, chooses its own port and API key, and disables automatic browser opening.', 'After import this is one of the app’s model configurations: its settings change the app’s copy, never this file, and the app’s model options apply when it starts.', 'The server may adjust GPU and HIP environment settings for the selected hardware.'] };
 }
 
 /** Save only a confirmed snapshot, exclusively: never replace an existing model. */

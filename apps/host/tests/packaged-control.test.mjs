@@ -679,27 +679,43 @@ test('packaged: a run config that names a longer engine wait is honoured, and ne
 });
 
 
-test('imported external configuration runs without a managed engine and remove keeps its files', async () => {
- const f=packagedFixture({engineUsable:false,ids:[]});
- const ownInstalled=f.control.installedModels;
- f.control.installedModels=async options=>{if(options?.installDir!==join(f.data,'legacy-models'))return ownInstalled(options); const dir=options.installDir;return {install_dir:dir,models:readdirSync(dir).filter(n=>n.endsWith('.json')).map(n=>({id:n.slice(7,-5),name:'Imported',source_config:join(dir,n),component_status:'present'}))};};
+/* The fixture's Control lists the app's model folder as it is on disk, the way `strata models list` does. */
+function listInstallFolder(f){f.control.installedModels=async options=>{const dir=options?.installDir??f.install;f.calls.push(['installedModels',dir]);return {install_dir:dir,models:readdirSync(dir).filter(n=>/^strata-.+\.json$/.test(n)).map(n=>({id:n.slice(7,-5),name:'Imported',source_config:join(dir,n),component_status:'present'}))};};}
+
+test('an imported run JSON becomes an app model configuration: settings change the copy, export gives it back, remove keeps the files', async () => {
+ const f=packagedFixture({ids:[]});listInstallFolder(f);
  try {
-  const exe=join(f.root,'用户 engine');writeFileSync(exe,'not run');const tok=join(f.root,'tokenizer');mkdirSync(tok);const args=['--pack',f.root,'--native',join(f.root,'model.gguf'),'--vram-reserve-mib','1200','--max-context','262144']; const config={exe,cwd:f.root,tokenizer:tok,args,env:{STRATA_HIP_WMMA:'1'},backend:'hip',port:8080};const text=JSON.stringify(config);
+  const exe=join(f.root,'用户 engine');writeFileSync(exe,'not run');writeFileSync(join(f.root,'model.gguf'),'');const tok=join(f.root,'tokenizer');mkdirSync(tok);const args=['--pack',f.root,'--native',join(f.root,'model.gguf'),'--max-context','262144']; const config={exe,cwd:f.root,tokenizer:tok,args,env:{STRATA_HIP_WMMA:'1'},backend:'hip',port:8080};
+  const source=join(f.root,'my-run.json'),text=JSON.stringify(config);writeFileSync(source,text);
   await f.native.refresh(true);await f.native.importLegacy(text,'legacy');
-  assert.equal(f.native.state().installed.models[0].externalImport,true);assert.equal(readFileSync(join(f.data,'legacy-models','strata-legacy.json'),'utf8'),text);
-  if(!isWin){const victim=join(f.root,'outside-backup');writeFileSync(victim,'keep');symlinkSync(victim,join(f.data,'legacy-models','strata-legacy.json.bak'));assert.throws(()=>f.native.save('legacy',{values:{}}),/not changed here/);assert.equal(readFileSync(victim,'utf8'),'keep');}
+  const copy=join(f.install,'strata-legacy.json');assert.equal(existsSync(join(f.data,'legacy-models')),false);
+  assert.equal(f.native.state().installed.models[0].imported,true);assert.deepEqual(JSON.parse(readFileSync(copy,'utf8')),{...config,ui_imported:true});
   await assert.rejects(f.native.importLegacy(text,'legacy'),/already exists/);
-  const job=await finish(f.native,f.native.operation('load',{model:'legacy'}).id);assert.equal(job.state,'done',job.error);assert.deepEqual(f.saved[0].args,args);assert.deepEqual(f.saved[0].env,config.env);assert.equal(f.saved[0].exe,exe);assert.equal(f.saved[0].ui_preserve_engine_args,true);assert.equal(JSON.parse(readFileSync(join(f.data,'legacy-models','strata-legacy.json'),'utf8')).ui_preserve_engine_args,undefined);assert.equal(f.saved[0].host,'127.0.0.1');assert.notEqual(f.saved[0].port,8080);
-  const removed=await finish(f.native,f.native.operation('remove',{model:'legacy'}).id);assert.equal(removed.state,'done',removed.error);assert.equal(existsSync(exe),true);assert.equal(existsSync(tok),true);assert.equal(f.rpc.some(x=>x.name==='strata_remove'),false);assert.equal(existsSync(join(f.data,'legacy-models','strata-legacy.json')),false);
+  f.native.save('legacy',{values:{vram_reserve_mib:1024}});assert.ok(JSON.parse(readFileSync(copy,'utf8')).args.includes('1024'));assert.equal(readFileSync(source,'utf8'),text,'the imported file is never changed');
+  const job=await finish(f.native,f.native.operation('load',{model:'legacy'}).id);assert.equal(job.state,'done',job.error);assert.equal(f.saved[0].exe,exe);assert.deepEqual(f.saved[0].env,config.env);assert.equal(f.saved[0].ui_preserve_engine_args,undefined);
+  await f.native.unload(f.native.state().instances[0].id);
+  const downloads=join(f.root,'Downloads'),out=f.native.exportConfig('legacy',{folder:downloads});assert.equal(out.path,join(downloads,'strata-legacy.json'));const exported=JSON.parse(readFileSync(out.path,'utf8'));assert.equal(exported.ui_imported,undefined);assert.equal(exported.exe,exe);assert.ok(exported.args.includes('1024'));
+  assert.equal(f.native.exportConfig('legacy',{folder:downloads}).path,join(downloads,'strata-legacy-2.json'),'an earlier export is not overwritten');
+  const removed=await finish(f.native,f.native.operation('remove',{model:'legacy'}).id);assert.equal(removed.state,'done',removed.error);assert.equal(existsSync(exe),true);assert.equal(existsSync(tok),true);assert.equal(existsSync(join(f.root,'model.gguf')),true);assert.equal(f.rpc.some(x=>x.name==='strata_remove'),false);assert.equal(existsSync(copy),false);
  } finally {await f.native.close();f.cleanup();}
 });
 
-test('linked import folder is not scanned or written outside the app', async () => {
- const f=packagedFixture({ids:[]});try {const outside=join(f.root,'outside');mkdirSync(outside);const linked=join(f.data,'legacy-models');symlinkSync(outside,linked,isWin?'junction':'dir');
-  await f.native.refresh(true);assert.equal(f.calls.some(c=>c[0]==='installedModels'&&(c[1]===linked||c[1]===outside)),false);
-  await assert.rejects(f.native.importLegacy(JSON.stringify({exe:'/tmp/exe',tokenizer:'/tmp/tok',args:[]}),'test'),/not a private directory/);
-  assert.equal(existsSync(join(outside,'strata-test.json')),false);
- }finally{await f.native.close();f.cleanup();}
+test('a managed model configuration can be exported too', async () => {
+ const f=packagedFixture({ids:['q2_0']});
+ try {await f.native.refresh(true);const out=f.native.exportConfig('q2_0',{folder:join(f.root,'out')});assert.equal(JSON.parse(readFileSync(out.path,'utf8')).exe,'component:strata-engine');assert.throws(()=>f.native.exportConfig('../x',{folder:join(f.root,'out')}),/installed model/);
+ } finally {await f.native.close();f.cleanup();}
+});
+
+test('records an earlier version kept apart move into the model folder once; a linked folder is left alone', async () => {
+ const f=packagedFixture({ids:[]});listInstallFolder(f);
+ try {const old=join(f.data,'legacy-models');mkdirSync(old,{mode:0o700});writeFileSync(join(old,'strata-old.json'),JSON.stringify({exe:'/tmp/exe',tokenizer:'/tmp/tok',args:[]}));
+  await f.native.refresh(true);assert.equal(JSON.parse(readFileSync(join(f.install,'strata-old.json'),'utf8')).ui_imported,true);assert.equal(existsSync(old),false);assert.equal(f.native.state().installed.models[0].imported,true);
+ } finally {await f.native.close();f.cleanup();}
+ if(isWin)return;
+ const g=packagedFixture({ids:[]});listInstallFolder(g);
+ try {const outside=join(g.root,'outside');mkdirSync(outside);writeFileSync(join(outside,'strata-x.json'),'{}');symlinkSync(outside,join(g.data,'legacy-models'),'dir');
+  await g.native.refresh(true);assert.equal(existsSync(join(g.install,'strata-x.json')),false);assert.equal(existsSync(join(outside,'strata-x.json')),true);
+ } finally {await g.native.close();g.cleanup();}
 });
 
 test('a chosen engine folder is the app engine folder: Control is told and managed engine changes go on', async () => {
@@ -768,22 +784,12 @@ test('a chosen engine folder keeps the engine version check',async()=>{
  }finally{await f.native.close();f.cleanup();}
 });
 
-test('imported hook requires review of the exact current configuration before starting', async()=>{
- const f=packagedFixture({engineUsable:false,ids:[]});const ownInstalled=f.control.installedModels;
- f.control.installedModels=async options=>{if(options?.installDir!==join(f.data,'legacy-models'))return ownInstalled(options);const dir=options.installDir;return {install_dir:dir,models:readdirSync(dir).filter(n=>n.endsWith('.json')).map(n=>({id:n.slice(7,-5),name:'Imported',source_config:join(dir,n),component_status:'present'}))};};
+test('an imported configuration with a hook loads like an app configuration: the hook was shown at import', async()=>{
+ const f=packagedFixture({ids:[]});listInstallFolder(f);
  try {
-  const config={exe:join(f.root,'engine'),cwd:f.root,tokenizer:join(f.root,'tok'),args:[],before_load:['echo','review me']};
-  await f.native.refresh(true);await f.native.importLegacy(JSON.stringify({...config,before_load:null}),'hook');
-  const noHook=f.native.legacyLoadReview('hook');assert.equal(noHook.beforeLoad,null);
-  const path=join(f.data,'legacy-models','strata-hook.json');writeFileSync(path,JSON.stringify(config));
-  const newlyAdded=await finish(f.native,f.native.operation('load',{model:'hook',confirmedConfigHash:noHook.configHash}).id);
-  assert.equal(newlyAdded.state,'error');assert.equal(f.calls.filter(c=>c[0]==='start').length,0);
-  const review=f.native.legacyLoadReview('hook');assert.deepEqual(review.beforeLoad,config.before_load);
-  writeFileSync(path,JSON.stringify({...config,before_load:['echo','changed']}));
-  const refused=await finish(f.native,f.native.operation('load',{model:'hook',confirmedConfigHash:review.configHash}).id);
-  assert.equal(refused.state,'error');assert.match(refused.error,/changed since review/);assert.equal(f.calls.filter(c=>c[0]==='start').length,0);
-  const current=f.native.legacyLoadReview('hook');assert.deepEqual(current.beforeLoad,['echo','changed']);
-  const allowed=await finish(f.native,f.native.operation('load',{model:'hook',confirmedConfigHash:current.configHash}).id);assert.equal(allowed.state,'done',allowed.error);assert.equal(f.calls.filter(c=>c[0]==='start').length,1);
+  const config={exe:join(f.root,'engine'),cwd:f.root,tokenizer:join(f.root,'tok'),args:[],before_load:['echo','reviewed at import']};
+  await f.native.refresh(true);await f.native.importLegacy(JSON.stringify(config),'hook');
+  const job=await finish(f.native,f.native.operation('load',{model:'hook'}).id);assert.equal(job.state,'done',job.error);assert.equal(f.calls.filter(c=>c[0]==='start').length,1);
  } finally {await f.native.close();f.cleanup();}
 });
 

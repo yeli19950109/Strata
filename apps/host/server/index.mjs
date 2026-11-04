@@ -1012,12 +1012,8 @@ async function api(req, res, path, method, url) {
    return json(res,200,await native.selectEngineFolder(picked.path));}
   if(path==='/api/native/engine-folder'&&method==='DELETE')return json(res,200,await native.clearEngineFolder());
   if(path==='/api/native/legacy/preview'&&method==='POST'){const {text}=await readBody(req,2*1024*1024);const preview=previewLegacyRunConfig(text);return json(res,200,{config:preview.config,issues:preview.issues,knownModel:preview.knownModel,overrides:preview.overrides});}
+  if(path==='/api/native/models/export'&&method==='POST'){const {model}=await readBody(req);return json(res,200,native.exportConfig(model));}
   if(path==='/api/native/legacy/import'&&method==='POST'){const {text,id}=await readBody(req,2*1024*1024);return json(res,200,await native.importLegacy(text,id));}
-  const legacyReview=/^\/api\/native\/legacy\/([a-z0-9_.-]+)\/load-review$/i.exec(path);
-  if(legacyReview&&method==='GET')return json(res,200,native.legacyLoadReview(legacyReview[1]));
-  const legacyConfig=/^\/api\/native\/legacy\/([a-z0-9_.-]+)\/config$/i.exec(path);
-  if(legacyConfig&&method==='GET'){await native.refresh(true);return json(res,200,native.readLegacy(legacyConfig[1]));}
-  if(legacyConfig&&method==='POST'){const body=await readBody(req,2*1024*1024);return json(res,200,await native.editLegacy(legacyConfig[1],body.text,body.configHash));}
   /* Settings > Storage > Models folder: pick (or type) a folder, say what it means, then start the choice. Copying is Control's (strata models move). */
   if(path==='/api/native/models-folder/plan'&&method==='POST'){
    const typed=await typedFolder((await readBody(req)).path,{isAbsolute});

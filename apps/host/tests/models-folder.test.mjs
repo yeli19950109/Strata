@@ -99,10 +99,10 @@ test('Keep: the new folder is used for new downloads, nothing is moved, both set
 });
 
 test('a chosen engine folder and imported records do not prevent choosing a new folder while keeping original files', async t => {
-  const f=fixture(t), engines=join(f.root,'own-engines'), legacy=join(f.data,'legacy-models');
+  const f=fixture(t), engines=join(f.root,'own-engines'), legacy=f.install;
   mkdirSync(engines);writeFileSync(join(engines,'marker'),'engine');
   writeFileSync(join(f.data,'engine-folder.json'),JSON.stringify({path:engines}));
-  mkdirSync(legacy);const record=join(legacy,'strata-mine.json'), original=JSON.stringify({exe:'component:strata-engine',args:['--native',join(f.oldFolder,'models','mine.gguf')]});writeFileSync(record,original);
+  const record=join(legacy,'strata-mine.json'), original=JSON.stringify({ui_imported:true,exe:'component:strata-engine',args:['--native',join(f.oldFolder,'models','mine.gguf')]});writeFileSync(record,original);
   const plan=await f.native.planModelsFolder(f.newFolder);assert.equal(plan.choices.keep.possible,true);assert.equal(plan.choices.move.possible,false);
   await f.native.startModelsFolder({folder:f.newFolder,choice:'keep'});
   assert.equal(f.native.state().downloadDirectory,realpathSync(f.newFolder));assert.equal(readFileSync(record,'utf8'),original);assert.equal(readFileSync(join(engines,'marker'),'utf8'),'engine');
@@ -127,8 +127,8 @@ test('an engine folder outside the model folders does not block a managed model 
 });
 
 test('an imported model outside both folders does not block moving managed models', async t => {
-  const f=fixture(t), legacy=join(f.data,'legacy-models'), own=join(f.root,'my-model');mkdirSync(legacy);mkdirSync(own);
-  const record=join(legacy,'strata-mine.json'), text=JSON.stringify({exe:join(own,'strata.exe'),tokenizer:join(own,'tokenizer'),args:['--native',join(own,'first.gguf'),'--pack',join(own,'pack')],env:{MY_LIBRARY:join(own,'library')}});writeFileSync(record,text);
+  const f=fixture(t), legacy=f.install, own=join(f.root,'my-model');mkdirSync(own);
+  const record=join(legacy,'strata-mine.json'), text=JSON.stringify({ui_imported:true,exe:join(own,'strata.exe'),tokenizer:join(own,'tokenizer'),args:['--native',join(own,'first.gguf'),'--pack',join(own,'pack')],env:{MY_LIBRARY:join(own,'library')}});writeFileSync(record,text);
   const plan=await f.native.planModelsFolder(f.newFolder);assert.equal(plan.choices.move.possible,true);
   const job=await f.native.startModelsFolder({folder:f.newFolder,choice:'move'});assert.equal((await finish(f.native,job.id)).state,'done');assert.equal(readFileSync(record,'utf8'),text);
 });

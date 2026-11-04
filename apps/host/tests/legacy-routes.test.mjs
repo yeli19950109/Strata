@@ -65,16 +65,12 @@ else if(args.includes('engine'))console.log(JSON.stringify({usable:false,notice:
  try {
   await start();const cfg={exe:'Y:\\Strata\\engine\\strata.exe',cwd:'Y:\\Strata',args:['--pack','Y:\\模型\\pack'],tokenizer:'Y:\\模型\\tokenizer',model_name:'Existing',env:{STRATA_HIP_WMMA:'1'},port:8080,before_load:['echo','inspect only']};const text='\ufeff'+JSON.stringify(cfg);
   const preview=await call('/api/native/legacy/preview','POST',{text});assert.equal(preview.status,200);assert.deepEqual(preview.body.config,cfg);
-  const imported=await call('/api/native/legacy/import','POST',{text,id:'mine'});assert.equal(imported.status,200,JSON.stringify(imported.body));assert.equal(imported.body.installed.models.find(m=>m.model==='mine').externalImport,true);
-  const review=await call('/api/native/legacy/mine/load-review');assert.equal(review.status,200);assert.deepEqual(review.body.beforeLoad,cfg.before_load);assert.match(review.body.configHash,/^[0-9a-f]{64}$/);
+  const imported=await call('/api/native/legacy/import','POST',{text,id:'mine'});assert.equal(imported.status,200,JSON.stringify(imported.body));assert.equal(imported.body.installed.models.find(m=>m.model==='mine').imported,true);
   const duplicate=await call('/api/native/legacy/import','POST',{text,id:'mine'});assert.equal(duplicate.status,400);assert.match(duplicate.body.error,/already exists/);
   const invalid=await call('/api/native/legacy/import','POST',{text:'{',id:'other'});assert.equal(invalid.status,400);assert.ok(invalid.body.error);
   await call('/api/setup/step','POST',{step:1,flowVersion:2,dismissed:true});await stop();await start();
-  assert.equal((await call('/api/setup')).body.dismissed,true);const status=await call('/api/native?refresh=1');assert.equal(status.body.installed.models.find(m=>m.model==='mine').externalImport,true);
-  const saved=await (await import('node:fs/promises')).readFile(join(home,'data','legacy-models','strata-mine.json'),'utf8');assert.equal(saved,text);
-  const opened=await call('/api/native/legacy/mine/config');assert.equal(opened.status,200);assert.equal(opened.body.text,text);
-  const changed=text.replace('Existing','Existing edited');const updated=await call('/api/native/legacy/mine/config','POST',{text:changed,configHash:opened.body.configHash});assert.equal(updated.status,200,JSON.stringify(updated.body));
-  assert.equal((await call('/api/native/legacy/mine/config','POST',{text,configHash:opened.body.configHash})).status,400);
-  await stop();await start();const reopened=await call('/api/native/legacy/mine/config');assert.equal(reopened.body.text,changed);assert.equal((await call('/api/native?refresh=1')).body.installed.models.find(m=>m.model==='mine').externalImport,true);
+  assert.equal((await call('/api/setup')).body.dismissed,true);const status=await call('/api/native?refresh=1');assert.equal(status.body.installed.models.find(m=>m.model==='mine').imported,true);
+  const saved=JSON.parse(await (await import('node:fs/promises')).readFile(join(install,'strata-mine.json'),'utf8'));assert.deepEqual(saved,{...cfg,ui_imported:true});
+  assert.equal((await call('/api/native/legacy/mine/config')).status,404);
  } finally {await stop();await rm(home,{recursive:true,force:true,maxRetries:10,retryDelay:200});}
 });
