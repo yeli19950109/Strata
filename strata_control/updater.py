@@ -738,7 +738,7 @@ def stage_engine(ctx: Context, feed: feedmod.Feed, pkg: feedmod.EnginePackage, a
         why = feedmod.engine_fit_reasons(pkg, ctx.hardware)
         if why:
             raise UpdateError("; ".join(why), 5)
-        _warn_if_deep(ctx, ctx.components / "engine" / folder_name(pkg), max((len(rel) for rel, _, _ in component.files), default=0) + 1)
+        _warn_if_deep(ctx, ec.engine_dir(ctx.components) / folder_name(pkg), max((len(rel) for rel, _, _ in component.files), default=0) + 1)
         return stage_root, component
     except BaseException:
         shutil.rmtree(longpath.long_path(stage_root), ignore_errors=True)
@@ -789,7 +789,11 @@ def _free_port() -> int:
 @contextlib.contextmanager
 def _patched_environ(values: dict):
     old = {key: os.environ.get(key) for key in values}
-    os.environ.update(values)
+    for key, value in values.items():                   # None takes the variable away for the time
+        if value is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = value
     try:
         yield
     finally:
@@ -1010,7 +1014,7 @@ def default_test_start(stage_root: Path, component: ec.EngineComponent, ctx: Con
         config_path.write_text(json.dumps(cfg, indent=1), encoding="utf-8")
         env = {"STRATA_COMPONENTS_DIR": str(stage_root), "STRATA_PROFILE_DIR": str(sandbox / "profiles"),
                "STRATA_RUNTIME_DIR": str(sandbox / "runtime"), "STRATA_NO_ACQUIRE": "1",
-               "STRATA_ENGINE_BACKEND": component.backend}
+               "STRATA_ENGINE_BACKEND": component.backend, ec.ENV_ENGINE_DIR: None}   # the staged engine, not the person's engine folder
         name = "updtest"
         with _patched_environ(env):
             os.environ.pop("STRATA_API_KEY", None)

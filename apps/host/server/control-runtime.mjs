@@ -30,6 +30,11 @@ export function componentsDirectory({ env = process.env, platform = process.plat
   return join(env.XDG_DATA_HOME || join(home, '.local', 'share'), 'strata', 'components');
 }
 
+/** The folder of the engine packages: the one the person chose in Settings (STRATA_ENGINE_DIR), else <components>/engine. Same rule as engine_component.engine_dir(). */
+export function engineDirectory({ env = process.env, platform = process.platform, home = homedir() } = {}) {
+  return env.STRATA_ENGINE_DIR || join(componentsDirectory({ env, platform, home }), 'engine');
+}
+
 /**
  * A Control that the component updater installed (`strata update` writes `<components>/control/active.json` after the new
  * bundle ran once). Null when there is none.

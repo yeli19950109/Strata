@@ -170,7 +170,7 @@ function packagedFixture({ engineUsable = true, updater = null, repair = false, 
   };
   const native = createNativeControl({ control, directory: data, spawnProcess, fetcher, requests: () => requests });
   const others = () => spawned.filter(s => !String(s.args[0]).endsWith('strata_mcp.py'));
-  return { native, control, data, calls, saved, spawned, others, rpc, failStart: (v, times = Infinity) => { startFailure = v; startFailureLeft = times; }, catalog, hardware, install, root, cleanup: () => { if (earlierInstallEnv === undefined) delete process.env.STRATA_INSTALL_DIR; else process.env.STRATA_INSTALL_DIR = earlierInstallEnv; if (earlierComponentsEnv === undefined) delete process.env.STRATA_COMPONENTS_DIR; else process.env.STRATA_COMPONENTS_DIR = earlierComponentsEnv; rmSync(root, { recursive: true, force: true }); } };
+  return { native, control, data, calls, saved, spawned, others, rpc, failStart: (v, times = Infinity) => { startFailure = v; startFailureLeft = times; }, catalog, hardware, install, root, cleanup: () => { delete process.env.STRATA_ENGINE_DIR; if (earlierInstallEnv === undefined) delete process.env.STRATA_INSTALL_DIR; else process.env.STRATA_INSTALL_DIR = earlierInstallEnv; if (earlierComponentsEnv === undefined) delete process.env.STRATA_COMPONENTS_DIR; else process.env.STRATA_COMPONENTS_DIR = earlierComponentsEnv; rmSync(root, { recursive: true, force: true }); } };
 }
 const finish = async (native, id) => { for (let i = 0; i < 400; i++) { const job = native.state().jobs.find(j => j.id === id); if (job.state !== 'running') return job; await new Promise(r => setTimeout(r, 10)); } throw new Error('job did not finish'); };
 
@@ -702,37 +702,32 @@ test('linked import folder is not scanned or written outside the app', async () 
  }finally{await f.native.close();f.cleanup();}
 });
 
-test('external engine or imported records protect managed engine component changes', async () => {
- const f=packagedFixture({ids:[],updater:{report:{},async update(){throw new Error('must not reach updater');}}});
- try {const exe=join(f.root,'external engine');writeFileSync(exe,'unchanged');chmodSync(exe,0o700);await f.native.refresh(true);await f.native.selectExternalEngine(exe);rmSync(exe);
-  for(const kind of ['update-engine','rollback','install-engine-file']){const job=await finish(f.native,f.native.operation(kind,{path:join(f.root,'incoming')}).id);assert.equal(job.state,'error');assert.match(job.error,/external engine/);}
-  await f.native.clearExternalEngine();const root=join(f.data,'legacy-models');mkdirSync(root);writeFileSync(join(root,'strata-import.json'),'{}');
-  for(const kind of ['update-engine','rollback','install-engine-file']){const job=await finish(f.native,f.native.operation(kind,{path:join(f.root,'incoming')}).id);assert.equal(job.state,'error');assert.match(job.error,/imported configurations/);}
-  assert.equal(f.calls.some(c=>['update','updateCheck','rollbackEngine','moveModels','resumeModelsMove','leaveModelsMove'].includes(c[0])),false);
+test('a chosen engine folder is the app engine folder: Control is told and managed engine changes go on', async () => {
+ const f=packagedFixture({ids:[],updater:{report:{},async update(){return {results:[]};}}});
+ try {const folder=join(f.root,'my engines');mkdirSync(folder);await f.native.refresh(true);
+  const chosen=await f.native.selectEngineFolder(folder);assert.equal(chosen.path,folder);assert.equal(chosen.usable,true);assert.equal(process.env.STRATA_ENGINE_DIR,folder);assert.equal(f.native.state().engineFolder.path,folder);
+  const root=join(f.data,'legacy-models');mkdirSync(root);writeFileSync(join(root,'strata-import.json'),'{}');
+  const job=await finish(f.native,f.native.operation('update-engine',{}).id);assert.doesNotMatch(String(job.error??''),/external engine|imported configurations/);assert.ok(f.calls.some(c=>c[0]==='update'));
+  await f.native.clearEngineFolder();assert.equal(process.env.STRATA_ENGINE_DIR,undefined);assert.equal(f.native.state().engineFolder.selected,false);
  }finally{await f.native.close();f.cleanup();}
 });
 
-test('selected external engine replaces component reference only for the running copy',async()=>{
- const f=packagedFixture({engineUsable:false,ids:['iq2_xs']});
- try {const exe=join(f.root,'existing engine');writeFileSync(exe,'engine');chmodSync(exe,0o700);writeFileSync(join(f.data,'external-engine.json'),JSON.stringify({path:exe}));await f.native.refresh(true);const job=await finish(f.native,f.native.operation('load',{model:'iq2_xs'}).id);assert.equal(job.state,'done',job.error);assert.equal(f.saved[0].exe,exe);assert.equal(JSON.parse(readFileSync(join(f.install,'strata-iq2_xs.json'),'utf8')).exe,'component:strata-engine');
+test('a chosen engine folder is persistent, loads through the component reference, and cannot change while loaded',async()=>{
+ const f=packagedFixture({ids:['iq2_xs']});
+ try {const folder=join(f.root,'engines');mkdirSync(folder);writeFileSync(join(f.data,'engine-folder.json'),JSON.stringify({path:folder}));await f.native.refresh(true);
+  assert.equal(f.native.state().engineFolder.path,folder);
+  const load=await finish(f.native,f.native.operation('load',{model:'iq2_xs'}).id);assert.equal(load.state,'done',load.error);assert.equal(f.saved[0].exe,'component:strata-engine');
+  await assert.rejects(f.native.clearEngineFolder(),/Unload models/);await f.native.unload(f.native.state().instances[0].id);
+  rmSync(folder,{recursive:true});assert.equal(f.native.state().engineFolder.selected,true);assert.equal(f.native.state().engineFolder.usable,false);
+  await f.native.clearEngineFolder();assert.equal(f.native.state().engineFolder.selected,false);
  }finally{await f.native.close();f.cleanup();}
 });
 
-test('selected external engine is persistent, refuses an offline drive, and cannot change while loaded',async()=>{
- const f=packagedFixture({engineUsable:false,ids:['iq2_xs']});
- try {const exe=join(f.root,'existing-engine');writeFileSync(exe,'engine');chmodSync(exe,0o700);await f.native.refresh(true);await f.native.selectExternalEngine(exe);assert.equal(f.native.state().externalEngine.path,exe);
-  const load=await finish(f.native,f.native.operation('load',{model:'iq2_xs'}).id);assert.equal(load.state,'done',load.error);await assert.rejects(f.native.clearExternalEngine(),/Unload models/);
-  await f.native.unload(f.native.state().instances[0].id);rmSync(exe);assert.equal(f.native.state().externalEngine.selected,true);assert.equal(f.native.state().externalEngine.usable,false);await f.native.refresh(true);assert.equal(f.native.state().installed.models[0].ready,false);assert.ok(f.native.state().installed.models[0].missing.includes('the engine program'));
-  const failed=await finish(f.native,f.native.operation('load',{model:'iq2_xs'}).id);assert.equal(failed.state,'error');assert.match(failed.error,/unavailable|reconnect/);assert.equal(f.calls.filter(c=>c[0]==='start').length,1);await f.native.clearExternalEngine();assert.equal(f.native.state().externalEngine.selected,false);
- }finally{await f.native.close();f.cleanup();}
-});
-
-
-test('packaged: preparing model files with a selected external engine never checks or installs a managed engine',async()=>{
- const report={engine:{status:'install',offered:{version:'0.1.46'},download_bytes:100}};
- const f=packagedFixture({engineUsable:false,updater:{report,async update(){throw new Error('unexpected engine download');}}});
- try {const exe=join(f.root,'external engine');writeFileSync(exe,'existing');chmodSync(exe,0o700);await f.native.refresh(true);await f.native.selectExternalEngine(exe);
-  const job=await finish(f.native,f.native.operation('install',{family:'qwen',model:'Q2_0'}).id);assert.equal(job.state,'done',job.error);assert.equal(f.calls.some(c=>c[0]==='updateCheck'||c[0]==='update'),false);assert.equal(readFileSync(exe,'utf8'),'existing');
+test('packaged: preparing model files with a chosen engine folder runs the same engine step as the app engine',async()=>{
+ const report={engine:{status:'current'}};
+ const f=packagedFixture({updater:{report,async update(){return {results:[]};}}});
+ try {const folder=join(f.root,'engines');mkdirSync(folder);await f.native.refresh(true);await f.native.selectEngineFolder(folder);
+  await finish(f.native,f.native.operation('install',{family:'qwen',model:'Q2_0'}).id);assert.equal(f.calls.some(c=>c[0]==='updateCheck'||c[0]==='update'),true);
  }finally{await f.native.close();f.cleanup();}
 });
 
@@ -768,9 +763,8 @@ test('an environment-selected install is never passed to the model remover',asyn
 });
 
 
-test('a selected external engine has unknown version rather than inheriting the managed engine version',async()=>{
- const f=packagedFixture();try{f.catalog.families[0].sizes[0].engine_min='999.0';await f.native.refresh(true);assert.equal(f.native.state().catalog.families[0].sizes[0].needsNewerEngine,true);assert.throws(()=>f.native.operation('install',{family:'qwen',model:'q2_0'}),/newer engine/);
- const exe=join(f.root,'external-engine');writeFileSync(exe,'engine');chmodSync(exe,0o700);await f.native.selectExternalEngine(exe);assert.equal(f.native.state().catalog.families[0].sizes[0].needsNewerEngine,false);const job=await finish(f.native,f.native.operation('install',{family:'qwen',model:'q2_0'}).id);assert.equal(job.state,'done',job.error);
+test('a chosen engine folder keeps the engine version check',async()=>{
+ const f=packagedFixture();try{f.catalog.families[0].sizes[0].engine_min='999.0';const folder=join(f.root,'engines');mkdirSync(folder);await f.native.refresh(true);await f.native.selectEngineFolder(folder);assert.equal(f.native.state().catalog.families[0].sizes[0].needsNewerEngine,true);assert.throws(()=>f.native.operation('install',{family:'qwen',model:'q2_0'}),/newer engine/);
  }finally{await f.native.close();f.cleanup();}
 });
 
@@ -807,8 +801,8 @@ test('the existing managed configuration hook path stays available',async()=>{
  } finally {await f.native.close();f.cleanup();}
 });
 
-test('a managed config using a selected external engine cannot run an unreviewed hook',async()=>{
+test('a chosen engine folder runs a managed configuration hook the same way',async()=>{
  const f=packagedFixture({ids:['q2_0']});
- try {const path=join(f.install,'strata-q2_0.json'),config=JSON.parse(readFileSync(path,'utf8'));config.exe='component:strata-engine';config.before_load=['echo','do not run'];writeFileSync(path,JSON.stringify(config));const exe=join(f.root,'chosen engine');writeFileSync(exe,'existing');chmodSync(exe,0o700);await f.native.refresh(true);await f.native.selectExternalEngine(exe);const job=await finish(f.native,f.native.operation('load',{model:'q2_0'}).id);assert.equal(job.state,'error');assert.match(job.error,/Import its JSON.*review/i);assert.equal(f.calls.filter(c=>c[0]==='start').length,0);
+ try {const path=join(f.install,'strata-q2_0.json'),config=JSON.parse(readFileSync(path,'utf8'));config.before_load=['echo','managed'];writeFileSync(path,JSON.stringify(config));const folder=join(f.root,'engines');mkdirSync(folder);await f.native.refresh(true);await f.native.selectEngineFolder(folder);const job=await finish(f.native,f.native.operation('load',{model:'q2_0'}).id);assert.equal(job.state,'done',job.error);assert.equal(f.calls.filter(c=>c[0]==='start').length,1);
  } finally {await f.native.close();f.cleanup();}
 });
