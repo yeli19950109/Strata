@@ -3572,5 +3572,8 @@
   "engdir006": "Der Engine-Ordner ist nicht erreichbar. Verbinde das Laufwerk erneut oder wähle den Ordner noch einmal.",
   "engdir007": "Der Engine-Ordner liegt in einem Ordner, der verschoben würde. Wähle, die Dateien an ihrem Ort zu lassen.",
   "engdir008": "Konfiguration exportieren",
-  "engdir009": "Nach dem Import ist dies eine Modellkonfiguration der App: Ihre Einstellungen ändern die Kopie der App, nie diese Datei, und beim Start gelten die Modelloptionen der App."
+  "engdir009": "Nach dem Import ist dies eine Modellkonfiguration der App: Ihre Einstellungen ändern die Kopie der App, nie diese Datei, und beim Start gelten die Modelloptionen der App.",
+  "engdir010": "Importierte Konfiguration",
+  "engdir011": "Das ist dein Engine-Ordner. Er wird hier nicht gelöscht.",
+  "engdir012": "Modellkonfiguration"
 }

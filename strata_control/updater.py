@@ -1089,7 +1089,10 @@ def prune_engines(root: Path, keep: set[str]) -> list[str]:
     folder = ec.engine_dir(root)
     if not folder.is_dir():
         return removed
+    own = (folder / ec.MANIFEST).is_file()           # a chosen engine folder that is a package: its own folders are its files
     for entry in sorted(folder.iterdir()):
+        if own and not (entry / ec.MANIFEST).is_file():
+            continue
         if entry.is_dir() and not entry.name.startswith(".") and entry.name not in keep:
             try:
                 shutil.rmtree(longpath.long_path(entry))

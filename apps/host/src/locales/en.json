@@ -3572,5 +3572,8 @@
   "engdir006": "The engine folder is unavailable. Reconnect its drive or choose the folder again.",
   "engdir007": "The engine folder is inside a folder that would be moved. Choose to keep files in place.",
   "engdir008": "Export configuration",
-  "engdir009": "After import this is one of the app’s model configurations: its settings change the app’s copy, never this file, and the app’s model options apply when it starts."
+  "engdir009": "After import this is one of the app’s model configurations: its settings change the app’s copy, never this file, and the app’s model options apply when it starts.",
+  "engdir010": "Imported configuration",
+  "engdir011": "This is your engine folder. It is not deleted here.",
+  "engdir012": "Model configuration"
 }

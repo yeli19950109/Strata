@@ -168,7 +168,10 @@ def _decorate(rows: list[dict], serving: bool) -> None:
     for row in rows:
         busy = _process_uses(Path(row["path"]))
         row["running"] = busy
-        if row["active"]:
+        if row.get("family") == QWEN and Path(row["path"]) == ec.engine_dir():
+            # the engine folder the person chose is itself this package: deleting it would take the other engines in it too
+            row["can_delete"], row["delete_blocked"], row["blocked_code"] = False, "This is your engine folder. It is not deleted here.", "folder"
+        elif row["active"]:
             row["can_delete"], row["delete_blocked"], row["blocked_code"] = False, "This is the engine in use. Switch to another one first.", "active"
         elif busy:
             row["can_delete"], row["delete_blocked"], row["blocked_code"] = False, "A running program is using it. Stop the model first.", "running"

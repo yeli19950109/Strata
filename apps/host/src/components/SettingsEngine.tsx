@@ -62,7 +62,7 @@ export function SettingsEngine() {
       </span>
       {engine.active ? <span className="engine-row__state">{tr("In use")}</span> : <>
         {engine.can_use ? <Btn size="sm" disabled={busy} onClick={() => { setError(null); setSaid(''); setUse(engine); }}>{tr("Use this")}</Btn> : null}
-        <Btn size="sm" variant="ghost" disabled={busy || !engine.can_delete} title={engine.blocked_code === 'running' ? tr("A running program is using this engine. Unload your models first.") : undefined} onClick={() => { setError(null); setSaid(''); setDel(engine); }}>{tr("Delete")}</Btn>
+        <Btn size="sm" variant="ghost" disabled={busy || !engine.can_delete} title={engine.blocked_code === 'running' ? tr("A running program is using this engine. Unload your models first.") : engine.blocked_code === 'folder' ? tr("This is your engine folder. It is not deleted here.") : undefined} onClick={() => { setError(null); setSaid(''); setDel(engine); }}>{tr("Delete")}</Btn>
       </>}
     </div>;
   }

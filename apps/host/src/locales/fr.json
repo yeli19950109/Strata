@@ -3572,5 +3572,8 @@
   "engdir006": "Le dossier du moteur est indisponible. Reconnectez son disque ou choisissez à nouveau le dossier.",
   "engdir007": "Le dossier du moteur se trouve dans un dossier qui serait déplacé. Choisissez de laisser les fichiers en place.",
   "engdir008": "Exporter la configuration",
-  "engdir009": "Après l’import, c’est une configuration de modèle de l’app : ses réglages modifient la copie de l’app, jamais ce fichier, et les options de modèle de l’app s’appliquent au démarrage."
+  "engdir009": "Après l’import, c’est une configuration de modèle de l’app : ses réglages modifient la copie de l’app, jamais ce fichier, et les options de modèle de l’app s’appliquent au démarrage.",
+  "engdir010": "Configuration importée",
+  "engdir011": "C’est votre dossier du moteur. Il n’est pas supprimé ici.",
+  "engdir012": "Configuration du modèle"
 }

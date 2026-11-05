@@ -21,16 +21,19 @@ test('the chosen engine folder persists and is handed to Control as its engine f
   } finally { rmSync(root,{recursive:true,force:true}); }
 });
 
-test('a package folder or a component folder is taken as the folder that holds the engines', () => {
+test('an engine package is the engine folder as it is; a component folder or a checkout means its engine folder', () => {
   const root=mkdtempSync(join(tmpdir(),'strata-engine-'));
   try {
     const components=join(root,'components'),engines=join(components,'engine'),pkg=join(engines,'0.1.56-windows-x86_64-hip');
     mkdirSync(pkg,{recursive:true});writeFileSync(join(pkg,'engine-component.json'),'{}');
-    assert.equal(engineFolderOf(pkg),engines);assert.equal(engineFolderOf(engines),engines);assert.equal(engineFolderOf(components),engines);
+    assert.equal(engineFolderOf(pkg),pkg);assert.equal(engineFolderOf(engines),engines);assert.equal(engineFolderOf(components),engines);
+    const checkout=join(root,'Strata'),own=join(checkout,'engine');mkdirSync(own,{recursive:true});writeFileSync(join(own,'engine-component.json'),'{}');for(const d of ['tools','tmp','tests'])mkdirSync(join(checkout,d));
+    assert.equal(engineFolderOf(checkout),own,'a checkout above its engine folder is not taken for a folder of engines');assert.equal(engineFolderOf(own),own);
     const empty=join(root,'empty');mkdirSync(empty);assert.equal(engineFolderOf(empty),empty);
     const manager=createEngineFolder(join(root,'app'),{env:{}});
     for (const invalid of ['relative',join(root,'missing'),'bad\0path']) assert.throws(()=>manager.select(invalid));
-    assert.equal(manager.select(pkg).path,engines);
+    assert.equal(manager.select(pkg).path,pkg);
+    writeFileSync(join(root,'app','engine-folder.json'),JSON.stringify({path:checkout}));assert.equal(manager.status().path,own,'a folder saved by the earlier rule is read as its engine folder');
   } finally { rmSync(root,{recursive:true,force:true}); }
 });
 
@@ -39,6 +42,6 @@ test('an engine executable kept by an earlier version becomes its folder', () =>
   try {
     const pkg=join(root,'engine','0.1.56-linux-x86_64-cuda');mkdirSync(pkg,{recursive:true});writeFileSync(join(pkg,'engine-component.json'),'{}');
     const app=join(root,'app');mkdirSync(app);writeFileSync(join(app,'external-engine.json'),JSON.stringify({path:join(pkg,'strata')}));
-    const env={};assert.equal(createEngineFolder(app,{env}).apply().path,join(root,'engine'));assert.equal(env.STRATA_ENGINE_DIR,join(root,'engine'));
+    const env={};assert.equal(createEngineFolder(app,{env}).apply().path,pkg);assert.equal(env.STRATA_ENGINE_DIR,pkg);
   } finally { rmSync(root,{recursive:true,force:true}); }
 });

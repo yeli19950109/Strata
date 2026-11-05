@@ -21,7 +21,7 @@ export interface InstalledEngine {
   why_args?: string[];
   can_use: boolean;
   can_delete: boolean;
-  blocked_code?: 'active' | 'running' | null;
+  blocked_code?: 'active' | 'running' | 'folder' | null;
   build_id?: string;
   path?: string;
   root?: string;

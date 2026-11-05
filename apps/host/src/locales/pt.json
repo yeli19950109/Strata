@@ -3572,5 +3572,8 @@
   "engdir006": "A pasta do motor não está disponível. Volte a ligar a unidade ou escolha a pasta novamente.",
   "engdir007": "A pasta do motor está dentro de uma pasta que seria movida. Escolha manter os ficheiros no lugar.",
   "engdir008": "Exportar configuração",
-  "engdir009": "Depois de importada, é uma configuração de modelo da app: as definições alteram a cópia da app, nunca este ficheiro, e as opções de modelo da app aplicam-se ao iniciar."
+  "engdir009": "Depois de importada, é uma configuração de modelo da app: as definições alteram a cópia da app, nunca este ficheiro, e as opções de modelo da app aplicam-se ao iniciar.",
+  "engdir010": "Configuração importada",
+  "engdir011": "Esta é a sua pasta do motor. Não é eliminada aqui.",
+  "engdir012": "Configuração do modelo"
 }
