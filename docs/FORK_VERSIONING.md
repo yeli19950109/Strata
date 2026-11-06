@@ -39,8 +39,9 @@ fork 序号从 1 开始，最多 99。上游 MINOR 或 MAJOR 变了就照常跟�
 5. `apps/host/package-lock.json` 顶层的 `version` 和 `packages[""].version`
 6. `strata_cli/__init__.py` 的 `PRODUCT_VERSION`
 7. `AGENTS.md` 第一行 `Version X, engine Y.`（engine 版本保持上游的，不要改）
-8. `tests/terminal/test_tui2_023_versions.py` 里的期望版本
+8. `tests/terminal/test_tui2_023_versions.py` 里的期望版本（包括 `strata X (build Y;` 那一行）
 9. `apps/host/tests/qa1-storage.test.mjs` 里 `assert.equal(cargo, '...')` 的期望版本
+10. `tests/terminal/test_tui2_023_old_launcher.py` 里 `strata X (build ` 的期望版本
 
 只改 app/Terminal 版本。engine、Control 的版本（`CMakeLists.txt` 等，如 `0.1.56`）跟上游走，不要套 fork 规则。
 
@@ -64,6 +65,6 @@ fork 序号从 1 开始，最多 99。上游 MINOR 或 MAJOR 变了就照常跟�
 
 Fork app version = upstream `MAJOR.MINOR.(PATCH × 100 + n)`, n = 1..99. Upstream 0.2.10 → fork 0.2.1001, 0.2.1002;
 upstream 0.2.11 → 0.2.1101. Suffixes like `0.2.10-1` sort *below* 0.2.10 in semver (Tauri updater and
-`app_version_key`) and are rejected by `fork-release.py`. After every upstream sync, reset the nine app/Terminal
+`app_version_key`) and are rejected by `fork-release.py`. After every upstream sync, reset the ten app/Terminal
 version locations listed above to the fork number; leave engine/Control versions as upstream has them.
 `test_fork_release.py` fails if the desktop patch number does not follow this rule.
