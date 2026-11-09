@@ -12,6 +12,7 @@ fork 版本 = 上游 MAJOR.MINOR . (上游 PATCH × 100 + fork 序号)
 | --- | --- | --- | --- |
 | 0.2.10 | 0.2.1001 | 0.2.1002 | `v0.2.1001`, `v0.2.1002` |
 | 0.2.11 | 0.2.1101 | 0.2.1102 | `v0.2.1101` |
+| 0.2.12 | 0.2.1201 | 0.2.1202 | `v0.2.1201` |
 | 0.2.9  | 0.2.901  | 0.2.902  | `v0.2.901` |
 | 0.3.0  | 0.3.1    | 0.3.2    | `v0.3.1` |
 
@@ -64,7 +65,7 @@ fork 序号从 1 开始，最多 99。上游 MINOR 或 MAJOR 变了就照常跟�
 ## English summary
 
 Fork app version = upstream `MAJOR.MINOR.(PATCH × 100 + n)`, n = 1..99. Upstream 0.2.10 → fork 0.2.1001, 0.2.1002;
-upstream 0.2.11 → 0.2.1101. Suffixes like `0.2.10-1` sort *below* 0.2.10 in semver (Tauri updater and
+upstream 0.2.11 → 0.2.1101; upstream 0.2.12 → 0.2.1201. Suffixes like `0.2.10-1` sort *below* 0.2.10 in semver (Tauri updater and
 `app_version_key`) and are rejected by `fork-release.py`. After every upstream sync, reset the ten app/Terminal
 version locations listed above to the fork number; leave engine/Control versions as upstream has them.
 `test_fork_release.py` fails if the desktop patch number does not follow this rule.
