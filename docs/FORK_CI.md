@@ -15,13 +15,14 @@ check manually. The general PR title check may still use a Linux runner; it chec
 package the client. Restore automatic Linux runtime checks by reviewing and restoring the upstream triggers in
 `.github/workflows/terminal-minimal-server.yml`.
 
-**Metal build**, **Portable monitor client** and **Scripts test** are manual-only in this fork. In GitHub Actions choose
+**Checks**, **Config snapshot**, **Docs**, **Backend compile checks**, **Metal build**, **Portable monitor client** and
+**Scripts test** are manual-only in this fork. In GitHub Actions choose
 one of them and select **Run workflow** to run it once. Docker engine-image publishing was already manual-only and stays
 so; do not run it for this fork without first reviewing its upstream registry and signing settings. To restore upstream
 automatic triggers, inspect the upstream version of each file and restore its `on:` triggers, then review and commit the
 change. For example, with an upstream commit already available locally, run
 `git show UPSTREAM_COMMIT:.github/workflows/metal-build.yml` to inspect its original triggers. Repeat for
-`terminal-portable-monitor.yml` and `scripts-test.yml` as needed. Issue and PR management workflows remain unchanged;
+`terminal-portable-monitor.yml`, `scripts-test.yml`, `backends.yml`, `check.yml`, `docs.yml` and `snapshot.yml` as needed. Issue and PR management workflows remain unchanged;
 they do not compile an engine.
 
 For a publishable fork release, use the fork's `yeli19950109/Strata` release and updater metadata, and a signing key that

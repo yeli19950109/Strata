@@ -101,8 +101,8 @@ const freePort = () => new Promise(r => { const s = createServer(); s.listen(0, 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const cleanup = dir => { try { rmSync(dir, { recursive: true, force: true, maxRetries: 3 }); } catch { /* best effort */ } };
 
-async function setup(t, beatMs) {
-  const worker = await startScriptedWorker({ model: 'cloud-model' });
+async function setup(t, beatMs, workerOptions = {}) {
+  const worker = await startScriptedWorker({ model: 'cloud-model', ...workerOptions });
   const home = mkdtempSync(join(tmpdir(), 'strata-beat-'));
   const ws = join(home, 'workspace'); mkdirSync(ws, { recursive: true });
   const port = await freePort();
@@ -162,6 +162,8 @@ test('route: a silent API model gets beats; a client that leaves cancels the mod
   let first = null;
   const quiet = s.chat('chat-beat-a', 'SCRIPT:hang', f => { if (f.type === 'beat' && first === null) first = Date.now(); });
   assert.ok(await until(() => quiet.frames.filter(f => f.type === 'beat').length >= 2), 'two beats while the model says nothing');
+  // Beats start before capability discovery finishes; `start` confirms the model request is open.
+  assert.ok(await until(() => quiet.frames.some(f => f.type === 'start')), 'the model request started');
   const framesBefore = quiet.frames.length;
   quiet.abort();
   await assert.rejects(quiet.done, { name: 'AbortError' });
@@ -176,11 +178,18 @@ test('route: a silent API model gets beats; a client that leaves cancels the mod
 });
 
 test('route: two chats at once are independent; leaving one does not touch the other', { timeout: 40_000 }, async t => {
-  const s = await setup(t, 250);
+  const { promise: modelsReady, resolve: releaseModels } = Promise.withResolvers();
+  t.after(releaseModels);
+  const s = await setup(t, 250, { modelsReady });
   const a = s.chat('chat-beat-1', 'SCRIPT:hang');
   const b = s.chat('chat-beat-2', 'SCRIPT:hang');
   const count = c => c.frames.filter(f => f.type === 'beat').length;
   assert.ok(await until(() => count(a) >= 2 && count(b) >= 2), 'both beat');
+  assert.equal(s.worker.requests.length, 0, 'beats arrive even while capability discovery blocks model dispatch');
+  releaseModels();
+  // A heartbeat is not a readiness signal. Wait for both actual model streams before cancelling either one.
+  assert.ok(await until(() => [a, b].every(c => c.frames.some(f => f.type === 'start'))), 'both model requests started');
+  assert.equal(s.worker.requests.filter(r => r.directive === 'hang').length, 2);
   a.abort();
   await assert.rejects(a.done, { name: 'AbortError' });
   assert.ok(await until(() => s.worker.aborted === 1, 1500), 'exactly the one request was cancelled');
