@@ -43,6 +43,7 @@ fork 序号从 1 开始，最多 99。上游 MINOR 或 MAJOR 变了就照常跟�
 8. `tests/terminal/test_tui2_023_versions.py` 里的期望版本（包括 `strata X (build Y;` 那一行）
 9. `apps/host/tests/qa1-storage.test.mjs` 里 `assert.equal(cargo, '...')` 的期望版本
 10. `tests/terminal/test_tui2_023_old_launcher.py` 里 `strata X (build ` 的期望版本
+11. `docs/data/release.json` 的 `fork_version`（例如 `0.2.1301`）
 
 只改 app/Terminal 版本。engine、Control 的版本（`CMakeLists.txt` 等，如 `0.1.56`）跟上游走，不要套 fork 规则。
 
@@ -66,6 +67,22 @@ fork 序号从 1 开始，最多 99。上游 MINOR 或 MAJOR 变了就照常跟�
 
 Fork app version = upstream `MAJOR.MINOR.(PATCH × 100 + n)`, n = 1..99. Upstream 0.2.10 → fork 0.2.1001, 0.2.1002;
 upstream 0.2.11 → 0.2.1101; upstream 0.2.12 → 0.2.1201. Suffixes like `0.2.10-1` sort *below* 0.2.10 in semver (Tauri updater and
-`app_version_key`) and are rejected by `fork-release.py`. After every upstream sync, reset the ten app/Terminal
-version locations listed above to the fork number; leave engine/Control versions as upstream has them.
+`app_version_key`) and are rejected by `fork-release.py`. After every upstream sync, reset the app/Terminal
+version locations and the manifest fork_version listed above to the fork number; leave engine/Control versions as upstream has them.
 `test_fork_release.py` fails if the desktop patch number does not follow this rule.
+
+## Release documentation manifest
+
+`docs/data/release.json` describes the published **upstream** release. Keep its `tag`, `published`,
+`product_version`, `terminal_version`, and asset names as upstream supplied them. They are not a claim that
+this fork has published installers. Do not replace upstream download names with the fork version.
+
+The optional `fork_version` is the source checkout's app and Terminal version. Set it to the fork number
+on each upstream sync. `tools/release_manifest.py --check` uses it for app/Terminal version sources and
+the `AGENTS.md` version header. Engine and Control checks still use upstream versions.
+`--write` also uses it for that header, but keeps all installer names and other release-documentation
+version lines on upstream versions. Without `fork_version`, the checker and writer retain upstream behavior,
+including the optional upstream `terminal_version` hotfix override.
+
+After a sync, run `python tools/release_manifest.py --check` and
+`python -m unittest discover -s tools -p test_release_manifest.py`.

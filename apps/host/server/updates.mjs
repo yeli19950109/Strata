@@ -44,6 +44,9 @@ export async function checkUpdates({ appVersion, engineVersion }, fetcher = fetc
   };
 }
 
+/** The engine row after a version failed its test start on this computer (owner-approved wording, 11-09). */
+export const engineFailedBeforeText = (offered, installed) => `Engine ${offered ?? 'update'} didn't start correctly on this computer, so Strata kept engine ${installed ?? 'in use'}. Press Update engine to try again.`;
+
 /**
  * The packaged app's update check: the upstream signed component feed, read by Control, and the fork app's own updater
  * (or its release metadata in browser mode). These checks are independent and happen only on an explicit request.
@@ -87,7 +90,10 @@ export async function checkComponentUpdates({ control, appUpdater = null, appVer
   if (engine.status === 'available' && engine.installed_locally) Object.assign(engineView, { status: 'available', message: 'A newer engine is already on this computer. Update switches to it; nothing is downloaded.' });
   else if (engine.status === 'available') Object.assign(engineView, { status: 'available', message: `A new engine is available (${mib(engine.download_bytes)}).` });
   else if (engine.status === 'install') Object.assign(engineView, { status: 'available', message: `This PC needs an engine to run models. Press Update engine to download it (${mib(engine.download_bytes)}).` });
-  else if (engine.status === 'current' || engine.status === 'failed-before' || engine.status === 'skipped') Object.assign(engineView, { status: 'current', message: 'The engine is up to date.', details: engine.note });
+  // A version that failed its test start here is held back by Control for a day (status failed-before). It is not 'up to date': the row says what happened and
+  // offers the update again (the app's Update engine passes --force, so the press really tries it again). QAGUI-LIN 0213.
+  else if (engine.status === 'failed-before') Object.assign(engineView, { status: 'available', canInstall: true, retry: true, message: engineFailedBeforeText(offered, installedEngine), details: engine.note });
+  else if (engine.status === 'current' || engine.status === 'skipped') Object.assign(engineView, { status: 'current', message: 'The engine is up to date.', details: engine.note });
   else if (engine.status === 'wrong-make') Object.assign(engineView, { status: 'unavailable', message: engine.note ?? 'Nothing was changed: the update was for another make of graphics card.', details: (engine.reasons ?? []).join('\n') || undefined });
   else if (engine.status === 'not-in-feed') Object.assign(engineView, { status: 'current', message: 'No engine update is listed right now.' });
   else Object.assign(engineView, { status: 'unavailable', message: "There isn't an engine for this PC's graphics card yet.", details: (engine.reasons ?? []).join('\n') || undefined });
@@ -114,7 +120,11 @@ export async function engineFirstRun({ control, gpus = [] }) {
   if (engine.installed) return { ...base, status: 'installed', installedVersion: engine.installed.version ?? null };
   if (engine.status === 'wrong-make') return { ...base, status: 'wrong-make', message: engine.note ?? null, reasons: engine.reasons ?? [] };
   if (engine.offered && (engine.status === 'install' || engine.status === 'available')) {
-    return { ...base, status: 'offer', offer: { version: engine.offered.version, bytes: engine.download_bytes || engine.offered.size || 0, variant: engine.offered.variant ?? '', backend: engine.offered.backend ?? null } };
+    // A newer Strata Control in the same feed comes with the engine (an Arc user who has just installed the app needed 0.1.59.1's fix and had to find Settings > Updates; ARCFIX 0213).
+    const ctl = report.control ?? {};
+    // Only a component-managed fallback can use this upstream Control; the fork bundle updates with the app.
+    const controlOffer = control.canUpdateControl?.() === true && ctl.status === 'available' && ctl.offered ? { version: ctl.offered, bytes: ctl.download_bytes || 0 } : null;
+    return { ...base, status: 'offer', offer: { version: engine.offered.version, bytes: engine.download_bytes || engine.offered.size || 0, variant: engine.offered.variant ?? '', backend: engine.offered.backend ?? null }, control: controlOffer };
   }
   return { ...base, status: 'none', message: engine.note ?? null, reasons: engine.reasons ?? [] };
 }

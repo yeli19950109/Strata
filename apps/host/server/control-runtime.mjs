@@ -54,14 +54,14 @@ export function updatedControlDirectory({ env = process.env, platform = process.
  * remains a fallback when neither explicit nor bundled Control is whole. */
 export function findControl({ env = process.env, platform = process.platform, exists = existsSync, hostDir = resolve(HERE, '..'), components = null } = {}) {
   const updated = updatedControlDirectory({ env, platform, components });
-  const candidates = [{ dir: env.STRATA_CONTROL_DIR }, { dir: join(hostDir, '..', 'control') }, ...(updated ? [updated] : [])]
+  const candidates = [{ dir: env.STRATA_CONTROL_DIR }, { dir: join(hostDir, '..', 'control') }, ...(updated ? [{ ...updated, componentManaged: true }] : [])]
     .filter(c => c.dir).map(c => ({ ...c, dir: resolve(c.dir) }));
   for (const candidate of candidates) {
     const python = bundledPython(candidate.dir, platform);
     if (!(exists(python) && exists(join(candidate.dir, 'strata.py')) && exists(join(candidate.dir, 'strata_control')))) continue;
     let bundle = null;
     try { bundle = JSON.parse(readFileSync(join(candidate.dir, 'BUNDLE.json'), 'utf8').replace(/^﻿/, '')); } catch { /* optional */ }
-    return { dir: candidate.dir, python, cli: join(candidate.dir, 'strata.py'), bundle };
+    return { dir: candidate.dir, python, cli: join(candidate.dir, 'strata.py'), bundle, componentManaged: candidate.componentManaged === true };
   }
   return null;
 }
@@ -164,9 +164,12 @@ export function runCli(control, args, { env = process.env, timeoutMs = 60_000, s
   });
 }
 
-const failure = (result, fallback) => new ControlError(
-  result.json?.error?.message ?? result.json?.error ?? result.json?.notice ?? (result.stderr.split(/\r?\n/).filter(Boolean).pop() || fallback),
-  { exitCode: result.code, output: result.json });
+/** Control's exit 7 means two things: an engine is serving, or another update holds the update lock (strata_control/updater.py update_lock). The lock is told by its text. */
+export const UPDATE_LOCK_HELD = /another update is already running/i;
+const failure = (result, fallback) => {
+  const message = result.json?.error?.message ?? result.json?.error ?? result.json?.notice ?? (result.stderr.split(/\r?\n/).filter(Boolean).pop() || fallback);
+  return new ControlError(message, { exitCode: result.code, output: result.json, ...(UPDATE_LOCK_HELD.test(String(message)) ? { code: 'update_busy' } : {}) });
+};
 
 /** Operations the app uses. `run` is injectable so the host's tests need no Python. */
 export function createControl({ control = findControl(), env = process.env, run = null } = {}) {
@@ -176,6 +179,20 @@ export function createControl({ control = findControl(), env = process.env, run 
   return {
     control,
     version: control.bundle?.version ?? null,
+    // Explicit and bundled fork Control update with the app, never from the upstream component feed.
+    canUpdateControl: () => control.componentManaged === true,
+    /**
+     * Use the preferred whole Control there is now (findControl again), after an update installed one: true when it changed. Every later call runs the new one.
+     * The caller makes sure nothing of the old one is running (native-control.mjs switchControl).
+     */
+    reload({ find = findControl } = {}) {
+      const next = find({ env });
+      if (!next || resolve(next.dir) === resolve(control.dir)) return false;
+      control = next;
+      this.control = next;
+      this.version = next.bundle?.version ?? null;
+      return true;
+    },
     /**
      * The explicit update step. These are the only calls that let Control reach the network: `acquire` removes
      * STRATA_NO_ACQUIRE for that one process. Starting, serving, listing and rolling back never do.
@@ -191,7 +208,7 @@ export function createControl({ control = findControl(), env = process.env, run 
       const result = await call(args, { timeoutMs: 3 * 3600_000, acquire: true, onLine: onEvent ?? (() => {}), signal });
       if (result.json?.ok) return result.json;
       const failed = result.json?.results?.find?.(r => r.status === 'failed');
-      if (failed) throw Object.assign(new ControlError(failed.error, { exitCode: failed.exit_code ?? result.code, output: result.json }), { code: result.code === 7 ? 'engine_serving' : 'update_failed' });
+      if (failed) throw Object.assign(new ControlError(failed.error, { exitCode: failed.exit_code ?? result.code, output: result.json }), { code: result.code === 7 && !UPDATE_LOCK_HELD.test(failed.error ?? '') ? 'engine_serving' : result.code === 7 ? 'update_busy' : 'update_failed' });
       throw failure(result, 'The update failed.');
     },
     /** Install an engine package the person downloaded and chose (the offline path): no network; Control checks the package's own signature. */
@@ -280,18 +297,18 @@ export function createControl({ control = findControl(), env = process.env, run 
       throw Object.assign(failure(result, 'The partial copies could not be removed.'), { code: result.json?.error?.code ?? 'leave_failed', details: result.json?.error?.details ?? '' });
     },
     /**
-     * The drafter for a model's run config and the drafting choice (`strata drafting plan`): { needed, gb, line, note, drafter, split, mtp_needed, mtp_gb }. Control decides
+     * The drafter for a model's run config and the drafting choice (`strata drafting plan`): { needed, tuned_needed, gb, drafter_gb, tuned, file, line, note, drafter, split, mtp_needed, mtp_gb }. `model` (with `family`) names a model that has no run config yet. Control decides
      * (the table of strata_control/drafting.py and the all-cards split engine's rule, strata_control/split_engine.py: the same answer as the Terminal's); the app never reads
      * it. Nothing is downloaded. `noSplit` asks as if the split engine will not take the start (only after the draft layer for the split could not be downloaded).
      */
-    async draftingPlan({ configPath = null, mode = null, family = null, dataDir = null, noSplit = false, unloading = false } = {}) {
-      const result = await call(['drafting', 'plan', ...(configPath ? ['--config', configPath] : []), ...(mode ? ['--mode', mode] : []), ...(family ? ['--family', family] : []), ...(dataDir ? ['--data-dir', dataDir] : []), ...(noSplit ? ['--no-split'] : []), ...(unloading ? ['--engines-unloading'] : []), '--output', 'json'], { timeoutMs: 30_000 });
+    async draftingPlan({ configPath = null, mode = null, family = null, model = null, dataDir = null, noSplit = false, unloading = false } = {}) {
+      const result = await call(['drafting', 'plan', ...(configPath ? ['--config', configPath] : []), ...(mode ? ['--mode', mode] : []), ...(family ? ['--family', family] : []), ...(model && !configPath ? ['--model', model] : []), ...(dataDir ? ['--data-dir', dataDir] : []), ...(noSplit ? ['--no-split'] : []), ...(unloading ? ['--engines-unloading'] : []), '--output', 'json'], { timeoutMs: 30_000 });
       if (result.json?.ok) return result.json;
       throw failure(result, 'The drafter could not be checked.');
     },
     /** Fetch and pack the drafter when the choice would use it and it is not here (`strata drafting fetch --if-needed`); `onEvent` gets {step, done, total}. */
-    async draftingFetch({ configPath, mode = null, noSplit = false, unloading = false, onEvent = null, signal = null } = {}) {
-      const args = ['drafting', 'fetch', '--config', configPath, ...(mode ? ['--mode', mode] : []), ...(noSplit ? ['--no-split'] : []), ...(unloading ? ['--engines-unloading'] : []), '--if-needed', '--output', 'jsonl'];
+    async draftingFetch({ configPath, mode = null, noSplit = false, unloading = false, throttle = false, onEvent = null, signal = null } = {}) {
+      const args = ['drafting', 'fetch', '--config', configPath, ...(mode ? ['--mode', mode] : []), ...(noSplit ? ['--no-split'] : []), ...(unloading ? ['--engines-unloading'] : []), '--if-needed', ...(throttle ? ['--throttle'] : []), '--output', 'jsonl'];
       const result = await call(args, { timeoutMs: 3 * 3600_000, acquire: true, onLine: onEvent ?? (() => {}), signal });
       if (result.json?.ok) return result.json;
       throw Object.assign(new ControlError(result.json?.error?.message ?? (result.stderr.split(/\r?\n/).filter(Boolean).pop() || 'The DFlash2 drafter could not be downloaded.'), { exitCode: result.code, output: result.json }), { code: 'drafting_failed' });
