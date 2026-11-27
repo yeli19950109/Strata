@@ -1,6 +1,6 @@
 # Install Strata
 
-This page is for anyone installing or updating Strata (version 0.2.13). Use the **desktop app** for a graphical
+This page is for anyone installing or updating Strata (version 0.2.22). Use the **desktop app** for a graphical
 interface, or the **Terminal** for `strata launch` and coding tools. Both use released engine packages. A normal
 install does not need a source checkout or a startup `.bat` file.
 
@@ -10,7 +10,6 @@ install does not need a source checkout or a startup `.bat` file.
 | --- | --- |
 | A window with chat | Download the installer from the [latest release](https://github.com/Niko1221/Strata/releases/latest) ([steps](#the-app)) |
 | The terminal, or my coding tool | Run the one-line install, then `strata launch` ([steps](#the-terminal)) |
-| DeepSeek V4.1-Flash | Pick it in the app, or run `strata launch --family deepseek41` ([model page](MODELS.md#deepseek-v41-flash)) |
 
 [Requirements](#what-you-need) · [Desktop app](#the-app) · [Terminal](#the-terminal) ·
 [Update](#updating) · [Files and folders](#where-things-are-stored) · [Build from source](SOURCE_INSTALL.md)
@@ -19,10 +18,10 @@ install does not need a source checkout or a startup `.bat` file.
 
 | Computer | Guide |
 | --- | --- |
-| Windows 10/11 or Linux x86-64 with an NVIDIA RTX GPU | Use the app or the Terminal. The engine for your card is downloaded for you. [Older NVIDIA cards](OLDER_GPUS.md) use the CUDA 12 engine. DeepSeek V4.1-Flash runs on RTX 30, 40 and 50 cards in the app and the Terminal. |
-| Windows or Linux x86-64 with a supported AMD Radeon | [AMD guide](AMD_HIP.md), including the card-to-package table. DeepSeek V4.1-Flash runs on the Radeon AI PRO R9700 under Linux, in the app and the Terminal. |
+| Windows 10/11 or Linux x86-64 with an NVIDIA RTX GPU | Use the app or the Terminal. The engine for your card is downloaded for you. [Older NVIDIA cards](OLDER_GPUS.md) use the CUDA 12 engine. |
+| Windows or Linux x86-64 with a supported AMD Radeon | [AMD guide](AMD_HIP.md), including the card-to-package table. |
 | Linux x86-64 with Intel Arc | [Intel Arc guide](INTEL_ARC.md); install the driver/compute runtime and check model preparation requirements |
-| Apple Silicon Mac, macOS 15 or newer | [Mac guide](MAC.md). Intel Macs are not supported by the Mac package. |
+| Apple Silicon Mac, macOS 15 or newer | [Mac guide](MAC.md). macOS 15 is supported; on it the Qwen engine reads prompts more slowly (about 10x on our measurement) because a macOS 26 feature is off. Intel Macs are not supported by the Mac package. |
 | AMD Ryzen AI Max / Strix Halo | [Strix Halo guide](STRIX_HALO.md) |
 | NVIDIA DGX Spark (Linux ARM64) | [DGX Spark guide](DGX_SPARK_LINUX.md). Use the Terminal; there is no desktop app for ARM64 Linux. |
 
@@ -36,19 +35,21 @@ hardware drivers. Models and updates need an internet connection to download.
 
 ## The app
 
+**Fork builds (Windows x64):** use the installer on the [fork releases page](https://github.com/yeli19950109/Strata/releases).
+The fork app and its bundled Control update together through the fork's signed app updater. Engines are separate
+and continue to come from the upstream component feed. The packages listed below are for the upstream app.
+
 1. Open the [latest release](https://github.com/Niko1221/Strata/releases/latest).
 2. Download the one installer for your system. There is one per system, not one per graphics card:
-   - **Windows:** run `Strata-0.2.13-windows-x64-setup.exe`. It installs for your user and needs no administrator rights.
-   - **Linux:** make `Strata-0.2.13-linux-x86_64.AppImage` executable, then open it. If FUSE is unavailable, run the
+   - **Windows:** run `Strata-0.2.22-windows-x64-setup.exe`. It installs for your user and needs no administrator rights.
+   - **Linux:** make `Strata-0.2.22-linux-x86_64.AppImage` executable, then open it. If FUSE is unavailable, run the
      downloaded file with `--appimage-extract-and-run`. [Linux help](TROUBLESHOOTING.md).
-   - **Mac:** open `Strata-0.2.13-macos-arm64.dmg`, drag Strata into Applications, then open it. [Mac help](MAC.md).
+   - **Mac:** open `Strata-0.2.22-macos-arm64.dmg`, drag Strata into Applications, then open it. [Mac help](MAC.md).
 3. On Windows and Linux the installer has no engine inside. On first start the app shows the engine for your
    graphics card with its size and one **Download** button, with progress and resume. If you already downloaded the
    engine file, choose **I already have the file** and it installs without internet. The Mac file keeps its small
    Metal engine inside.
-4. Choose a model and its storage folder, let it download, then chat. DeepSeek V4.1-Flash is in the model list on
-   the supported cards ([model page](MODELS.md#deepseek-v41-flash)); it has three sizes, an 8K context and a **Speed**
-   choice, Faster or Full quality.
+4. Choose a model and its storage folder, let it download, then chat.
 
 The `strata-engine-…` and `strata-control-…` archives on the release page are components, not installers. The
 installer is the same file for a first install and for an update. There is no Intel desktop installer yet; Intel Arc
@@ -59,48 +60,28 @@ startup time for every model or computer. Closing the desktop app stops its mana
 
 ### Use an existing engine and run configuration
 
-On the first engine screen, choose **Use an existing engine** and enter the full path to its executable. You can
-also find this choice under **Models → Existing engine configurations**. Strata references the executable in place;
-it does not move or delete it. Stop loaded models before changing the selection. If its drive is disconnected,
-the selection stays saved; reconnect the drive before loading a model. Choose **Stop using this engine** to return to
-the app-managed engine.
+In the fork, open **Use an existing engine…** on the first engine screen, in **Settings → Engine**, or in
+**Models → Existing engine configurations**. Choose the folder containing the engine package, or the folder
+holding its package directories. Strata uses the selected folder in place instead of its default engine folder.
+It does not copy the existing engine. The normal engine update installs verified packages alongside the existing
+files, not over an old executable or an unsigned ZIP. If the drive is unavailable, reconnect it or choose another
+folder. **Use Strata’s own engine folder** switches back without removing files from the selected folder.
 
-To update a selected external engine, open **Use an existing engine**, choose **Check external engine update**, and
-review the current version, target version and path. The update starts only after confirmation and saves a backup first.
-Stop models in the app and stop any other command-line engine processes before updating; another program could start one
-again while the update runs. The updater accepts only intact, signed standard engine packages with a complete signed file
-list. Older official Windows HIP ZIPs as well as custom layouts may lack that list. The app cannot safely update them in
-place without it. Back up the existing files and install an official signed component in a separate folder, then select
-its executable; your original engine, models and JSON stay in place. If using an imported JSON, also update a separate
-copy as described below. The path alone cannot establish whether a particular old engine has a usable signed list.
-Reconnect an offline drive before checking or restoring. If an update is interrupted, use the restore prompt after restart
-to restore the verified backup. On macOS the app cannot reliably detect a running command-line engine, so it refuses
-this update; stop it and update manually. Automatic external-engine updates are implemented for Windows and Linux;
-Windows has not yet been verified on native hardware. While external references
-are present, some managed-engine install/rollback and model-folder moves are
-paused to protect files those references may use.
-Recovery leaves any files added by the interrupted update in place to avoid deleting files it cannot prove ownership of.
-Their paths are shown after recovery; review them before retrying, because existing files can prevent a later update.
+To import a command-line run, choose **Import run JSON…** under **Models → Existing engine configurations** or
+**Use an existing engine and JSON configuration…** during first start. Review the configuration, give it a unique
+name, and import it. Importing does not start the model or download an engine. The app keeps an editable copy;
+use **Manage configuration** or **Export configuration** to work with it. **Remove from Strata** removes the copy,
+not the original JSON, engine, model files, or libraries.
 
-To bring in a command-line run, choose **Import run JSON** on that screen (or **Use an existing engine and JSON
-configuration** on first start). Review the configuration and the changes listed, give it a unique name, and confirm.
-The app saves its own copy without starting the model or downloading an engine. The original JSON, engine, models and
-libraries stay in place; **Remove from Strata** removes only the app's copy. Reconnect missing drives before loading.
-Use absolute paths for the working directory, tokenizer, log and library directories; engine and known model argument
-paths may be relative to an absolute working directory.
-An imported configuration's explicit `exe` takes precedence over the globally selected engine. If you move an old
-engine to a new folder, edit a separate copy of the JSON to name the new `exe`, then import it under a new name; selecting
-the new engine alone does not change the imported configuration. Keep the original JSON and files until the new setup
-has been checked.
+The JSON's explicit `exe` takes precedence over the engine chosen globally. If you switch the globally selected
+engine folder, edit the copy's `exe` separately if you also want that imported model to use a different executable.
+Use absolute paths for the working directory, tokenizer, log, and library directories. Paths stay in the saved
+configuration; reconnect missing drives rather than assuming the app moved the referenced files. If a model-folder
+move would affect files used by the selected engine or an imported configuration, choose to keep files in place.
 
-Imported engine arguments are passed in their original order. The app server uses localhost and its own port and API
-key, disables automatic browser opening, adds an alias and may increase the startup timeout. Other settings that would
-rewrite the engine arguments are not applied to an imported run. If the configuration has a `before_load` command,
-the app shows it for confirmation each time before loading. If the configuration changes after that review, review it
-again. The command runs when the model starts. The server may adjust GPU and HIP environment settings for the selected
-hardware.
-Paths in the imported `env` are kept as written. An external HIP tuning file referenced there is not updated with the
-engine; check that it is compatible with the new engine before starting the model.
+On launch, app model options apply, the app server binds to localhost, chooses its port and API key, and disables
+automatic browser opening. Review any `before_load` command before importing or starting an edited configuration:
+the command can run when the model starts.
 
 The provider order recommended here is **ISTA-DASLab, Unsloth, Gyro, then others**, when a compatible pack fits.
 Current app recommendations can differ; choose the model explicitly when you want a particular provider.
@@ -172,7 +153,7 @@ In a script nothing is asked: `--yes` alone never stops a model (exit 7, nothing
 and `--start-again` starts it again afterwards (exit 8 if it did not start again). The next Terminal command uses the updated
 Control component. The app, Control and engine have separate version numbers, so they can differ.
 
-Use `strata components rollback` to return to the previous engine. See [update details](../packaging/UPDATES.md).
+Use `strata components rollback` to return to the previous engine. See [update details](../tools/packaging/UPDATES.md).
 Source checkouts have a [separate update workflow](SOURCE_INSTALL.md#updating).
 
 ## Where things are stored

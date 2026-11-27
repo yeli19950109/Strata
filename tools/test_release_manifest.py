@@ -40,31 +40,71 @@ class ReleaseManifest(unittest.TestCase):
         m.pop("fork_version", None)
         m.pop("terminal_version", None)                             # the Terminal then has to say the product version
         problems = "\n".join(rm.check(m))
-        self.assertIn("strata_cli/__init__.py says", problems)
+        self.assertIn("terminal/strata_cli/__init__.py says", problems)
         self.assertIn("asset list has no Strata-0.2.99-windows-x64-setup.exe", problems)
 
     def test_a_control_only_hotfix_is_allowed_and_a_drifting_control_is_not(self):
-        """0.2.13.1: the Terminal and Control are one hotfix part ahead of the app and the engines; nothing else may differ."""
+        """0.2.13.1: the Terminal and Control are one hotfix part ahead of the app and the engines; nothing else may differ.
+        Written so it holds for a release with a hotfix part (0.2.13.1) and without one (0.2.14)."""
         m = rm.load()
         self.assertEqual(rm.check(m), [])
         wrong = copy.deepcopy(m)
-        wrong["control_version"] = m["engine_version"]              # the manifest says the hotfix is not there, the source says it is
+        wrong["control_version"] = m["engine_version"] + ".9"       # the manifest names a Control hotfix the source does not have
         problems = "\n".join(rm.check(wrong))
         self.assertIn("CMakeLists.txt (Control) says", problems)
         wrong = copy.deepcopy(m)
         wrong["engine_version"] = "0.1.58"                          # engines two builds behind Control: not a hotfix
         self.assertIn("CMakeLists.txt (engine) says", "\n".join(rm.check(wrong)))
         wrong = copy.deepcopy(m)
-        del wrong["terminal_version"]
-        wrong.pop("fork_version", None)                           # no overrides: the Terminal must say the product version
-        self.assertIn("strata_cli/__init__.py says", "\n".join(rm.check(wrong)))
+        wrong.pop("fork_version", None)
+        wrong["terminal_version"] = m["product_version"] + ".9"     # the manifest names a Terminal the source does not say
+        terminal = rm.code_versions()["terminal/strata_cli/__init__.py"][0]
+        self.assertIn("terminal/strata_cli/__init__.py says %s" % terminal, "\n".join(rm.check(wrong)))
+
+    def test_a_release_that_carries_its_engines_names_where_they_come_from(self):
+        """0.2.15: Control 0.1.61 and the 0.1.60 engines of v0.2.14 (no engine built). Without "engines_from" Control may not be ahead of
+        the engines; with it, the engines at engine_version must be packages the release offers."""
+        m = copy.deepcopy(rm.load())
+        m["engines_from"] = "v0.2.14"
+        m["control_version"], m["engine_version"] = "0.1.61", "0.1.60"
+        m["assets"] = [a for a in m["assets"] if not a.startswith("strata-engine-")] + ["strata-engine-0.1.60-linux-x86_64-cuda-cuda13.tar.gz"]   # the live list's engines are this release's own
+        cmake = {"CMakeLists.txt (engine)": ("0.1.61", "engine_version"), "CMakeLists.txt (Control)": ("0.1.61", "control_version")}
+        real = rm.code_versions
+        try:
+            rm.code_versions = lambda: {**real(), **cmake}
+            self.assertNotIn("CMakeLists.txt (engine) says", "\n".join(rm.check(m)))
+            no_from = copy.deepcopy(m)
+            no_from.pop("engines_from")
+            self.assertIn("CMakeLists.txt (engine) says", "\n".join(rm.check(no_from)))
+            gone = copy.deepcopy(m)
+            gone["engine_version"] = "0.1.58"                       # no 0.1.58 engine package in the asset list
+            self.assertIn("CMakeLists.txt (engine) says", "\n".join(rm.check(gone)))
+        finally:
+            rm.code_versions = real
+
+    def test_a_control_only_update_of_the_same_release_names_its_own_tag_as_the_engines_source(self):
+        """0.2.21.1: Control 0.1.68 joins the v0.2.21 release, whose engines stay 0.1.67 (no engine built, tag unchanged)."""
+        m = copy.deepcopy(rm.load())
+        m["tag"], m["engines_from"] = "v" + m["product_version"], "v" + m["product_version"]
+        m["control_version"], m["engine_version"] = "0.1.68", "0.1.67"
+        m["assets"] = [a for a in m["assets"] if not a.startswith("strata-engine-")] + ["strata-engine-0.1.67-linux-x86_64-cuda-cuda13.tar.gz"]
+        cmake = {"CMakeLists.txt (engine)": ("0.1.68", "engine_version"), "CMakeLists.txt (Control)": ("0.1.68", "control_version")}
+        real = rm.code_versions
+        try:
+            rm.code_versions = lambda: {**real(), **cmake}
+            self.assertNotIn("CMakeLists.txt (engine) says", "\n".join(rm.check(m)))
+            no_from = copy.deepcopy(m)
+            no_from.pop("engines_from")
+            self.assertIn("CMakeLists.txt (engine) says", "\n".join(rm.check(no_from)))
+        finally:
+            rm.code_versions = real
 
     def test_fork_override_checks_app_terminal_and_agents_only(self):
         m = copy.deepcopy(rm.load())
-        m["fork_version"] = "0.2.1302"
+        m["fork_version"] = "0.2.2202"
         problems = "\n".join(rm.check(m))
-        for source in ("strata_cli/__init__.py", "apps/host/package.json", "apps/desktop/package.json",
-                       "apps/desktop/src-tauri/Cargo.toml"):
+        for source in ("terminal/strata_cli/__init__.py", "app/host/package.json", "app/desktop/package.json",
+                       "app/desktop/src-tauri/Cargo.toml"):
             self.assertIn(source + " says", problems)
         self.assertIn("AGENTS.md:", problems)
         self.assertNotIn("asset list has no", problems)
@@ -72,6 +112,7 @@ class ReleaseManifest(unittest.TestCase):
 
     def test_upstream_without_fork_override_still_checks_hotfix_versions(self):
         m = copy.deepcopy(rm.load())
+        m["terminal_version"] = m["product_version"] + ".1"
         fork = m.pop("fork_version")
         versions = rm.code_versions()
         for where, (_, key) in versions.items():
@@ -86,7 +127,7 @@ class ReleaseManifest(unittest.TestCase):
         with patch.object(rm, "code_versions", return_value=versions), patch.object(rm, "read", side_effect=upstream_read):
             self.assertEqual(rm.check(m), [])
             del m["terminal_version"]
-            self.assertIn("strata_cli/__init__.py says", "\n".join(rm.check(m)))
+            self.assertIn("terminal/strata_cli/__init__.py says", "\n".join(rm.check(m)))
 
     def test_write_keeps_upstream_installers_and_fork_header(self):
         m = rm.load()
