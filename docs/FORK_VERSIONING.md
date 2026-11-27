@@ -22,7 +22,7 @@ fork 序号从 1 开始，最多 99。上游 MINOR 或 MAJOR 变了就照常跟�
 
 - `fork-release.py` 只接受 `vMAJOR.MINOR.PATCH` 的 tag。
 - Tauri 更新器按 semver 比较：`0.2.10-1` 是预发布版，**比 `0.2.10` 小**，装了 0.2.10 的用户收不到更新。
-  `strata_control/feed.py` 的 `app_version_key` 也是这样排序。
+  `terminal/strata_control/feed.py` 的 `app_version_key` 也是这样排序。
 - `0.2.10+1` 的构建元数据在 semver 比较里被忽略，等于 `0.2.10`，同样不会更新。
 - 直接用 `0.2.11` 会和上游以后的 0.2.11 同名，tag 也会冲突。
 
@@ -33,21 +33,21 @@ fork 序号从 1 开始，最多 99。上游 MINOR 或 MAJOR 变了就照常跟�
 
 合并上游代码时，上游会把下面这些位置改成它自己的版本号（例如 `0.2.11`）。**合并后必须改回 fork 规则的版本号**（例如 `0.2.1101`）：
 
-1. `apps/desktop/package.json` 的 `version`
-2. `apps/desktop/src-tauri/Cargo.toml` 的 `version`
-3. `apps/desktop/src-tauri/Cargo.lock` 里 `name = "strata-desktop"` 下面的 `version`
-4. `apps/host/package.json` 的 `version`
-5. `apps/host/package-lock.json` 顶层的 `version` 和 `packages[""].version`
-6. `strata_cli/__init__.py` 的 `PRODUCT_VERSION`
+1. `app/desktop/package.json` 的 `version`
+2. `app/desktop/src-tauri/Cargo.toml` 的 `version`
+3. `app/desktop/src-tauri/Cargo.lock` 里 `name = "strata-desktop"` 下面的 `version`
+4. `app/host/package.json` 的 `version`
+5. `app/host/package-lock.json` 顶层的 `version` 和 `packages[""].version`
+6. `terminal/strata_cli/__init__.py` 的 `PRODUCT_VERSION`
 7. `AGENTS.md` 第一行 `Version X, engine Y.`（engine 版本保持上游的，不要改）
-8. `tests/terminal/test_tui2_023_versions.py` 里的期望版本（包括 `strata X (build Y;` 那一行）
-9. `apps/host/tests/qa1-storage.test.mjs` 里 `assert.equal(cargo, '...')` 的期望版本
-10. `tests/terminal/test_tui2_023_old_launcher.py` 里 `strata X (build ` 的期望版本
-11. `docs/data/release.json` 的 `fork_version`（例如 `0.2.1301`）
+8. `terminal/tests/terminal/test_tui2_023_versions.py` 里的期望版本（包括 `strata X (build Y;` 那一行）
+9. `app/host/tests/qa1-storage.test.mjs` 里 `assert.equal(cargo, '...')` 的期望版本
+10. `terminal/tests/terminal/test_tui2_023_old_launcher.py` 里 `strata X (build ` 的期望版本
+11. `docs/data/release.json` 的 `fork_version`（例如 `0.2.2201`）
 
 只改 app/Terminal 版本。engine、Control 的版本（`CMakeLists.txt` 等，如 `0.1.56`）跟上游走，不要套 fork 规则。
 
-`tests/terminal/test_fork_release.py` 里有一个检查：桌面端版本的 PATCH 不符合 fork 规则（小于 100，或序号为 0）时测试会失败，
+`terminal/tests/terminal/test_fork_release.py` 里有一个检查：桌面端版本的 PATCH 不符合 fork 规则（小于 100，或序号为 0）时测试会失败，
 这样忘了改版本号会在 CI 里直接报出来。
 
 ## 发布步骤

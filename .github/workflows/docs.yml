@@ -3,9 +3,9 @@ name: Docs
 # The documentation checks (python tools/check --only docs): every local link in the current pages resolves, the version lines and
 # installer names agree with docs/data/release.json, the capability table and its summaries are what docs/data/capabilities.json says, and the
 # settings page matches the register.  Python standard library only; nothing is built, downloaded or run on a GPU.
-# Archived pages (history/, release notes, bench/results) are not checked; their baseline is history/LINK-BASELINE.md.
+# Archived pages (docs/history/, release notes, docs/bench-results) are not checked; their baseline is history/LINK-BASELINE.md.
 
-# Fork CI: opt-in upstream checks; automatic client CI stays Windows-only.
+# Fork: automated client CI runs on Windows; this upstream check is opt-in.
 on:
   workflow_dispatch:
 

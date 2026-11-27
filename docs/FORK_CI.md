@@ -15,9 +15,9 @@ check manually. The general PR title check may still use a Linux runner; it chec
 package the client. Restore automatic Linux runtime checks by reviewing and restoring the upstream triggers in
 `.github/workflows/terminal-minimal-server.yml`.
 
-**Checks**, **Config snapshot**, **Docs**, **Backend compile checks**, **Metal build**, **Portable monitor client** and
+**Checks**, **Config snapshot**, **Docs**, **Backend compile checks**, **Metal build**, **Portable monitor client**, **Intel runner** and
 **Scripts test** are manual-only in this fork. In GitHub Actions choose
-one of them and select **Run workflow** to run it once. Docker engine-image publishing was already manual-only and stays
+one of them and select **Run workflow** to run it once. The Intel hardware check requires its own self-hosted runner. Docker engine-image publishing was already manual-only and stays
 so; do not run it for this fork without first reviewing its upstream registry and signing settings. To restore upstream
 automatic triggers, inspect the upstream version of each file and restore its `on:` triggers, then review and commit the
 change. For example, with an upstream commit already available locally, run

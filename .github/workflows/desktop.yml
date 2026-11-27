@@ -4,54 +4,26 @@ name: Desktop client
 on:
   push:
     paths:
-      - 'apps/host/**'
-      - 'apps/desktop/**'
-      - 'strata_control/**'
-      - 'strata_cli/**'
-      - 'serve/**'
-      - 'tools/**'
-      - 'setup.py'
-      - 'strata.py'
-      - 'ref/load.py'
-      - 'data/**'
-      - 'bench/prompts/standard-v1/**'
+      - 'app/host/**'
+      - 'app/desktop/**'
+      - 'terminal/**'
+      - 'engine/metal/tools/**'
+      - 'engine/third_party/strata-gguf-py/**'
+      - 'tools/packaging/**'
       - 'docs/MANAGEMENT_PROTOCOL.md'
       - 'docs/TERMINAL_LAUNCH.md'
-      - 'packaging/package_terminal.py'
-      - 'packaging/package_engine.py'
-      - 'packaging/feed_tool.py'
-      - 'packaging/binary_deps.py'
-      - 'tests/terminal/test_engine_dir_choice.py'
-      - 'tests/terminal/test_fork_release.py'
-      - 'tests/terminal/update_fixture.py'
-      - 'packaging/locks/**'
-      - 'requirements*.txt'
       - '.github/workflows/desktop.yml'
       - '.github/workflows/fork-release.yml'
   pull_request:
     paths:
-      - 'apps/host/**'
-      - 'apps/desktop/**'
-      - 'strata_control/**'
-      - 'strata_cli/**'
-      - 'serve/**'
-      - 'tools/**'
-      - 'setup.py'
-      - 'strata.py'
-      - 'ref/load.py'
-      - 'data/**'
-      - 'bench/prompts/standard-v1/**'
+      - 'app/host/**'
+      - 'app/desktop/**'
+      - 'terminal/**'
+      - 'engine/metal/tools/**'
+      - 'engine/third_party/strata-gguf-py/**'
+      - 'tools/packaging/**'
       - 'docs/MANAGEMENT_PROTOCOL.md'
       - 'docs/TERMINAL_LAUNCH.md'
-      - 'packaging/package_terminal.py'
-      - 'packaging/package_engine.py'
-      - 'packaging/feed_tool.py'
-      - 'packaging/binary_deps.py'
-      - 'tests/terminal/test_engine_dir_choice.py'
-      - 'tests/terminal/test_fork_release.py'
-      - 'tests/terminal/update_fixture.py'
-      - 'packaging/locks/**'
-      - 'requirements*.txt'
       - '.github/workflows/desktop.yml'
       - '.github/workflows/fork-release.yml'
   workflow_dispatch:
@@ -71,20 +43,24 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24.12.0'
+          architecture: x64
           cache: npm
-          cache-dependency-path: apps/host/package-lock.json
+          cache-dependency-path: app/host/package-lock.json
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+          architecture: x64
       - run: npm ci --no-audit --no-fund
-        working-directory: apps/host
+        working-directory: app/host
       - run: npm run typecheck
-        working-directory: apps/host
+        working-directory: app/host
       - name: Chosen engine folder tests (stdlib only)
         # Temporary folders only; no real engine or GPU.
-        run: python -m unittest tests.terminal.test_engine_dir_choice -q
+        run: python -m unittest tests.terminal.test_engine_dir_choice tests.terminal.test_fork_cfg_paths -q
+        working-directory: terminal
       - name: Fork release configuration tests
         run: python -m unittest tests.terminal.test_fork_release -q
+        working-directory: terminal
       - name: Find browser for UI test
         shell: pwsh
         run: |
@@ -92,10 +68,10 @@ jobs:
           if (-not $browser) { throw 'Chrome or Edge is required for the browser test' }
           "STRATA_TEST_CHROME=$browser" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: Host tests (complete suite)
-        working-directory: apps/host
+        working-directory: app/host
         run: npm test
       - run: npm run build
-        working-directory: apps/host
+        working-directory: app/host
 
   package:
     needs: host
@@ -109,36 +85,37 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24.12.0'
+          architecture: x64
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+          architecture: x64
       - uses: dtolnay/rust-toolchain@stable
       - name: Install UI and Tauri dependencies
         shell: bash
         run: |
-          npm ci --prefix apps/host --no-audit --no-fund
-          npm ci --prefix apps/desktop --no-audit --no-fund
+          npm ci --prefix app/host --no-audit --no-fund
+          npm ci --prefix app/desktop --no-audit --no-fund
       - name: Stage verified Node runtime (Windows)
         shell: pwsh
         run: |
-          ./apps/desktop/scripts/fetch-node.ps1
-          ./apps/desktop/scripts/fetch-node.ps1 -Check
+          ./app/desktop/scripts/fetch-node.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./app/desktop/scripts/fetch-node.ps1 -Check
       - name: Stage Control and Python runtime
-        run: |
-          python apps/desktop/scripts/stage-control.py
-          python apps/desktop/scripts/stage-control.py --check
+        run: python app/desktop/scripts/stage-control.py && python app/desktop/scripts/stage-control.py --check
       - name: Prepare explicitly empty optional resources
         shell: bash
         run: |
-          mkdir -p apps/desktop/src-tauri/resources/harness apps/desktop/src-tauri/resources/engine-bundle
-          printf 'CI package: optional Harness is not included.\n' > apps/desktop/src-tauri/resources/harness/CI-NOT-INCLUDED.txt
-          printf 'CI package: no engine is included.\n' > apps/desktop/src-tauri/resources/engine-bundle/CI-NOT-INCLUDED.txt
+          mkdir -p app/desktop/src-tauri/resources/harness app/desktop/src-tauri/resources/engine-bundle
+          printf 'CI package: optional Harness is not included.\n' > app/desktop/src-tauri/resources/harness/CI-NOT-INCLUDED.txt
+          printf 'CI package: no engine is included.\n' > app/desktop/src-tauri/resources/engine-bundle/CI-NOT-INCLUDED.txt
       - name: Build unsigned test package
-        working-directory: apps/desktop
+        working-directory: app/desktop
         run: npm run build:ui && npx tauri build --bundles nsis
       - uses: actions/upload-artifact@v4
         with:
           name: strata-desktop-test-windows-x64
-          path: apps/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe
+          path: app/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe
           if-no-files-found: error
           retention-days: 7
